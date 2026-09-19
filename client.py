@@ -23,11 +23,11 @@ except (AttributeError, ValueError):
     pass
 
 ASCII_BANNER = r"""
-   ___  __  __  ____  ___  ______  ____   ___  ______ ____   ____   ___   __
-  / _ |/ / / / / __ \/ _ \/_  __/ / __ \ / _ \/_  __// __ \ / __/  / _ | / /
- / __ / /_/ / / /_/ / , _/ / /   / /_/ // , _/ / /  / /_/ /_\ \   / __ |/ /_
-/_/ |_\____/  \____/_/|_| /_/    \____//_/|_| /_/   \____//___/  /_/ |_/___/
-                       G H O S T   P R O T O C O L
+@@@@@ @@@ @   @ @@@@     @@@@@ @   @ @@@@@    @@@@@ @   @  @@@  @@@ @   @ @@@@@ @@@@@ @@@@  
+@      @  @@  @ @   @      @   @   @ @        @     @@  @ @      @  @@  @ @     @     @   @ 
+@@@@   @  @ @ @ @   @      @   @@@@@ @@@@     @@@@  @ @ @ @  @@  @  @ @ @ @@@@  @@@@  @@@@  
+@      @  @  @@ @   @      @   @   @ @        @     @  @@ @   @  @  @  @@ @     @     @  @  
+@     @@@ @   @ @@@@       @   @   @ @@@@@    @@@@@ @   @  @@@  @@@ @   @ @@@@@ @@@@@ @   @ 
 """
 
 PHASE_BANNERS = {
@@ -42,12 +42,13 @@ ROLE_DISPLAY = {
     "Doctor": ("FIREWALL SPECIALIST", "Shield one system from tonight's breach."),
     "Detective": ("WHITE-HAT", "Scan one target per cycle for intrusions."),
     "Villager": ("CREW MEMBER", "Trusted crew - root out the infiltrator before it's too late."),
+    "Professor": ("CYBER INTELLIGENCE AGENT", "Gather information about other players' roles."),
 }
 
 PROMPT_LABELS = {
-    "kill": "SELECT BREACH TARGET",
+    "infect": "SELECT TARGET TO INFECT",
     "save": "SELECT SYSTEM TO FIREWALL",
-    "investigate": "SELECT TARGET TO SCAN",
+    "detain": "SELECT PLAYER TO SEND TO JAIL",
     "vote": "CAST YOUR VOTE - WHO IS THE INFILTRATOR?",
 }
 

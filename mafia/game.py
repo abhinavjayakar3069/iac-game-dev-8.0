@@ -28,6 +28,7 @@ class Player:
         self.connected = True
         self.is_host = False
         self.spectator = False
+        self.score = 0
         # Input routing state: what kind of reply we're expecting next.
         self.pending = None          # None | "name" | "action"
         self.pending_kind = None     # "kill" | "save" | "investigate" | "vote"
@@ -44,7 +45,7 @@ class GameServer:
         self.port = port
         self.min_players = min_players
 
-        self.players = {}
+        self.players = {}   
         self._players_lock = threading.Lock()
         self.inbound = queue.Queue()
         self._next_id = 1
@@ -371,15 +372,21 @@ class GameServer:
         mafia = [p for p in alive if p.role == roles.ENGINEER]
         doctor = next((p for p in alive if p.role == roles.DOCTOR), None)
         detective = next((p for p in alive if p.role == roles.POLICE), None)
+        professors = [p for p in alive if p.role == roles.PROFESSOR]
 
         mafia_targets = [p for p in alive if p.role != roles.ENGINEER]
         for m in mafia:
-            self._prompt(m, "kill", mafia_targets, "Choose a target to eliminate:", self.NIGHT_TIME)
+            self._prompt(m, "infect", mafia_targets, "Choose a target to infect:", self.NIGHT_TIME)
         if doctor:
             self._prompt(doctor, "save", alive, "Choose a player to protect:", self.NIGHT_TIME)
+        for prof in professors:
+            self._prompt(prof, "steal", [p for p in alive if p.id != prof.id], "Choose a player to deduct points from:", self.NIGHT_TIME)
+
+        
+
         if detective:
             invest_targets = [p for p in alive if p.id != detective.id]
-            self._prompt(detective, "investigate", invest_targets, "Choose a player to investigate:", self.NIGHT_TIME)
+            self._prompt(detective, "detain", invest_targets, "Choose a player to send to jail:", self.NIGHT_TIME)
 
         actors = set(m.id for m in mafia)
         if doctor:
@@ -389,9 +396,13 @@ class GameServer:
         for p in alive:
             if p.id not in actors:
                 self.send_text(p, "Night falls. Other roles are making their move... sit tight.", "dim")
+        for prof in professors:
+            actors.add(prof.id)
 
-        kill_votes = {}
+
+        infect_votes = {}
         save_target = {}
+        jail_votes = {}
         pending_pids = set(actors)
 
         def on_message(pid, msg):
@@ -418,43 +429,53 @@ class GameServer:
                 self.send_text(p, "Invalid choice. Enter a number/name from the list, or 'skip'.", "red")
                 return len(pending_pids) == 0
 
+
+
+
             p.pending = None
             pending_pids.discard(pid)
             kind = p.pending_kind
-            if kind == "kill" and target:
-                kill_votes[pid] = target.id
+            if kind == "infect" and target:
+                infect_votes[pid] = target.id
             elif kind == "save":
                 save_target["id"] = target.id if target else None
-            elif kind == "investigate" and target:
-                is_mafia = target.role == roles.ENGINEER
-                self.send_to(p, {"type": "investigate_result", "target": target.name, "is_mafia": is_mafia})
+            elif kind == "jail" and target:
+                jail_votes[pid] = target.id
+            elif kind == "steal" and target:
+                target.score-=1; p.score+=1
             return len(pending_pids) == 0
+        
 
         self._pump(time.time() + self.NIGHT_TIME, on_message)
         for p in list(self.players.values()):
             if p.pending == "action":
                 p.pending = None
 
-        kill_target_id = self._plurality(list(kill_votes.values()))
+        infect_target_id = self._plurality(list(infect_votes.values()))
         saved_id = save_target.get("id")
-        victim = self.players.get(kill_target_id) if kill_target_id else None
+        victim = self.players.get(infect_target_id) if infect_target_id else None
 
-        if victim and victim.id == saved_id:
-            self.last_night_result = ("saved", victim.name)
-        elif victim:
-            victim.alive = False
-            self.last_night_result = ("killed", victim.name, victim.role)
+        if victim and victim.id != saved_id and victim.role != roles.ENGINEER:
+            victim.role = roles.ENGINEER
+            self.send_to(victim, {"type":"role", "role": roles.ENGINEER, "description": roles.DESCRIPTIONS[roles.ENGINEER], "teammates": [p.name for p in mafia ]})
+            for e in mafia:
+                self.send_text(e, f"{victim.name} has been converted into an Engineer! They are now on your team.", "red")
+
+        jail_target_id = self._plurality(list(jail_votes.values()))
+        jailed = self.players.get(jail_target_id) if jail_target_id else None
+        if jailed:
+            jailed.alive = False
+            self.last_night_result = ("jailed", jailed.name, jailed.role)
         else:
             self.last_night_result = ("none", None)
         self._log(f"Night {self.round} result: {self.last_night_result}")
 
+
     def _describe_night_result(self):
         r = self.last_night_result
         if r is None or r[0] == "none":
-            return "No one was attacked last night."
-        if r[0] == "saved":
-            return f"{r[1]} was attacked last night, but the Doctor saved them!"
-        return f"{r[1]} was found dead this morning. They were a {r[2]}."
+            return "No one was jailed last night."
+        return f"{r[1]} was found rotting in a cell this morning, they were a {r[2]}."
 
     def day_phase(self):
         self.broadcast_text(f"\n=== Day {self.round} ===", "yellow")
@@ -603,7 +624,7 @@ class GameServer:
     def _end_game(self, winner):
         self.broadcast_phase("game_over")
         role_list = {p.name: p.role for p in self.players.values() if p.name and not p.spectator}
-        headline = "The Village wins!" if winner == "village" else "The Mafia wins!"
+        headline = "The Non-Engineers Win!" if winner == "village" else "The Engineers Win!"
         self.broadcast_text(f"\n=== GAME OVER === {headline}", "bold")
         lines = "\n".join(f"  {name}: {role}" for name, role in role_list.items())
         self.broadcast_text("Final roles:\n" + lines, "cyan")
