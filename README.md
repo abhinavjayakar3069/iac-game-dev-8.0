@@ -85,17 +85,22 @@ python server.py [--port 5050] [--host 0.0.0.0] [--min-players 4] [--bots 0]
 Each night, players with special roles secretly submit an action. Each day, the
 crew discusses in an open chat, then votes to eliminate a suspect.
 
-| Role | In-fiction | Team | Ability |
-|---|---|---|---|
-| **Mafia** | Infiltrator | Mafia | Each night, the Mafia (who know each other) jointly choose one player to eliminate. |
-| **Doctor** | Firewall Specialist | Village | Each night, protect one player (including themselves) from the Mafia's kill. |
-| **Detective** | White-hat | Village | Each night, investigate one player and privately learn if they're Mafia. |
-| **Villager** | Crew Member | Village | No special power — just a vote and your ability to read the room. |
+| Role | Team | Ability |
+|---|---|---|
+| **Engineer** | Engineers | Each night, the Engineers (who know each other) jointly choose one player to try to convert. The target gets a real choice — accept and join the Engineers, or refuse and stay as they are. |
+| **Doctor** | Everyone else | Each night, protect one player (including themselves) from being converted. |
+| **Police** | Everyone else | Each night, send one player to jail — this permanently eliminates them, with no way to block it. |
+| **Professor** | Everyone else | Each night, deduct a point from another player and add it to your own score. No effect on who's alive. |
 
-Role counts scale with the number of players (roughly 1 Mafia per 4 players, 1
-Doctor always, 1 Detective from 5 players up). Every player only ever sees
-information their own role is entitled to — hidden state lives entirely on the
-server and is never sent to clients that shouldn't see it.
+Role counts scale with the number of players (roughly 1 Engineer per 4 players, 1
+Doctor always, 1 Police from 5 players up, everyone else is a Professor). Every
+player only ever sees information their own role is entitled to — hidden state
+lives entirely on the server and is never sent to clients that shouldn't see it.
+
+**Conversion is a choice, not a coin flip you don't get a say in.** Accepting an
+Engineer's offer gives you +2 points and puts you on their team; refusing costs
+you 1 point but keeps your original role. Final scores are shown on the
+end-of-game screen for everyone.
 
 **Discussion isn't just a timer.** During the day, type `accuse <name>` to publicly
 flag a suspect — it updates a live suspicion tally broadcast to the whole table,
@@ -106,11 +111,11 @@ before their identity is revealed to everyone.
 
 **Win conditions**
 
-- **The Crew wins** the moment every Mafia/infiltrator has been eliminated.
-- **The Mafia wins** the moment Mafia count is greater than or equal to the
-  remaining crew count.
+- **Everyone else wins** the moment every Engineer has been eliminated.
+- **The Engineers win** the moment their count is greater than or equal to
+  everyone else remaining.
 
-Eliminated players (by night kill or day vote) become **spectators**: they keep
+Eliminated players (by jail or day vote) become **spectators**: they keep
 receiving the live game feed, but their chat is only visible to other
 spectators/eliminated players, never to the living.
 
