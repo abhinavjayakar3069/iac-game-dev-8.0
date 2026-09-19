@@ -19,16 +19,19 @@ DESCRIPTIONS = {
         "tonight."
     ),
     MENTOR: (
-        "You are the Mentor. Each night, choose one player to protect from "
-        "the Grad Student's influence. You may protect yourself. Protection "
-        "only works against tonight's attempt - it can't save someone "
-        "already marked from a previous night."
+        "You are the Mentor. Each night, choose any player to protect from "
+        "the Grad Student's influence. You may protect yourself. If your "
+        "pick matches tonight's attack, you're told the student was saved; "
+        "otherwise you hear nothing. It can't save someone already marked "
+        "from a previous night."
     ),
     WARDEN: (
-        "You are the Warden. Each night, check one player's room. If they're "
-        "the Grad Student and were out that night, you'll catch their room "
-        "empty - you'll know immediately, and it becomes public the next "
-        "morning for everyone to vote on. If not, nothing unusual turns up."
+        "You are the Warden. Each night, check one player's room. It reads "
+        "missing if they were attacked, if they're the Grad Student and went "
+        "out to attack, or if they're the Mentor and went out to protect "
+        "someone - you can't tell which. A missing report becomes public the "
+        "next morning for everyone to weigh; otherwise the room is reported "
+        "present, nothing unusual."
     ),
     PROFESSOR: (
         "You are the Professor. Each night, you can deduct a point from "

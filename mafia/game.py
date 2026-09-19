@@ -536,21 +536,32 @@ class GameServer:
             # Delayed and silent: the target isn't told, and doesn't die
             # until _resolve_pending_infection() runs at the top of next night.
             self.pending_infection_id = infect_id
+        elif infect_id and infect_id == saved_id and mentor:
+            # Only the Mentor is told, and only when their pick actually
+            # mattered - a pick that didn't match tonight's attack stays silent.
+            self.send_text(mentor, "The student was saved!", "green")
 
         inspect_id = inspect_target["id"]
         if inspect_id and warden:
             inspected = self.players.get(inspect_id)
-            # The Grad Student's room is only ever "empty" if they actually
-            # went out tonight (submitted a target) - whether or not the
-            # Mentor ended up blocking that attempt doesn't matter here.
-            caught = grad_student is not None and infect_id is not None and inspect_id == grad_student.id
-            if caught:
-                self.send_text(warden, f"{inspected.name}'s room is empty - suspicious!", "red")
+            # A room reads "missing" for any of three reasons, and the
+            # Warden can't tell which: the occupant was tonight's attack
+            # target, they ARE the Grad Student and went out to attack, or
+            # they ARE the Mentor and went out to protect someone. All three
+            # look identical - real information, but a genuinely ambiguous
+            # one, not a direct accusation.
+            missing = (
+                (infect_id is not None and inspect_id == infect_id)
+                or (grad_student is not None and infect_id is not None and inspect_id == grad_student.id)
+                or (mentor is not None and saved_id is not None and inspect_id == mentor.id)
+            )
+            if missing:
+                self.send_text(warden, f"{inspected.name} is missing from their room last night!", "red")
                 # Revealed publicly next morning, feeding the normal day
                 # vote - not an automatic removal like the old jail/expel.
                 self.pending_suspicion_id = inspect_id
             else:
-                self.send_text(warden, f"{inspected.name}'s room is occupied - nothing unusual.", "cyan")
+                self.send_text(warden, f"{inspected.name} is reported present in their room.", "cyan")
 
         self._log(f"Night {self.round} complete.")
 
@@ -562,8 +573,8 @@ class GameServer:
             self.pending_suspicion_id = None
             if suspect and suspect.alive:
                 self.broadcast_text(
-                    f"[WARDEN'S REPORT] {suspect.name}'s room was found empty during last "
-                    "night's room check - suspicious! Vote wisely.",
+                    f"[WARDEN'S REPORT] {suspect.name} was reported missing from their room "
+                    "during last night's check. Vote wisely.",
                     "magenta",
                 )
 

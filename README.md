@@ -100,8 +100,8 @@ discusses in an open chat, then votes to eliminate a suspect.
 | Role | Team | Ability |
 |---|---|---|
 | **Grad Student** | Alone | Always exactly one. Each night, chooses another student to influence. The target isn't told - they quietly die at the start of the *following* night, unless the Mentor protects them that same night. Wins once their side reaches parity with everyone else remaining. |
-| **Mentor** | Everyone else | Each night, freely chooses one player (including themselves) to protect from the Grad Student's influence. Protection only blocks *that night's* attempt - it can't save someone already marked from a previous night. |
-| **Warden** | Everyone else | Each night, checks one player's room. If that player is the Grad Student *and* the Grad Student went out that night, their room turns up empty - the Warden is told immediately, and it's announced publicly the next morning. Checking anyone else (or the Grad Student on a night they didn't act) turns up nothing. |
+| **Mentor** | Everyone else | Each night, freely chooses any player (including themselves) to protect from the Grad Student's influence. If the pick matches that night's attack, the Mentor is told "the student was saved" - otherwise, silence. Can't save someone already marked from a previous night. |
+| **Warden** | Everyone else | Each night, checks one player's room. It comes back **missing** if that player was the attack target, *or* is the Grad Student who went out to attack, *or* is the Mentor who went out to protect someone - the Warden can't tell which. A missing report is announced publicly the next morning; otherwise the room is reported present. |
 | **Professor** (7+ players only) | Everyone else | Each night, deduct a point from another player and add it to your own score. No effect on who's alive. |
 | **Student** | Everyone else | No special ability - just a vote and your read on the room. |
 
@@ -116,11 +116,11 @@ removed until the *following* night - the only immediate elimination is the
 **day vote**. If a day vote ties or gets no votes two times in a row, the
 tie is broken at random rather than letting the game stall forever.
 
-**The Warden's report is evidence, not a verdict.** It only surfaces the
-Grad Student if the Warden happened to check the right room on a night they
-were actually active - a wrong guess reveals nothing, and it never removes
-anyone by itself. The community still has to act on it through the normal
-day vote.
+**The Warden's report is evidence, not a verdict.** "Missing" has three
+possible causes (the attack's target, the Grad Student, or the Mentor) and
+the Warden can't distinguish them - a genuine clue, not a direct accusation.
+It never removes anyone by itself; the community still has to act on it
+through the normal day vote.
 
 **Discussion isn't just a timer.** During the day, type `accuse <name>` to publicly
 flag a suspect — it updates a live suspicion tally broadcast to the whole table,
