@@ -148,6 +148,19 @@ player was the host, host status is transferred automatically. Invalid input
 (bad menu numbers, unknown names) is rejected with a re-prompt instead of
 crashing the server or blocking other players.
 
+## Tests
+
+`mafia/roles.py` is pure logic (no sockets/threads), so it's unit-tested
+directly. There's also a live integration suite that spins up a real
+`GameServer` on a loopback socket and throws malformed JSON, oversized
+payloads, wrong-typed fields, unknown message types, and abrupt disconnects
+at it — confirming a broken/hostile client can never take the game down for
+everyone else.
+
+```bash
+python -m unittest discover tests -v
+```
+
 ## AI usage
 
 Generative AI assistance (Claude) was used during development for code
