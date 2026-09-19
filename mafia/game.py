@@ -37,7 +37,7 @@ class Player:
 
 class GameServer:
     NIGHT_TIME = 35
-    DAY_DISCUSS_TIME = 75
+    DAY_DISCUSS_TIME = 45
     DAY_VOTE_TIME = 30
     CONVERT_ACCEPT_BONUS = 2
     CONVERT_REFUSE_PENALTY = 1
