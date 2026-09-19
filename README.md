@@ -33,11 +33,12 @@ Everyone else:
 dist\terminal-mafia-client.exe <host-ip> 5050
 ```
 
-Both also work by double-clicking the `.exe` directly (no terminal needed) -
-`terminal-mafia-server.exe` starts on the default port 5050, and
-`terminal-mafia-client.exe` will try to find the server automatically on
-the local network/hotspot, falling back to asking for the host IP and port
-if nothing answers (some phone hotspots block this kind of discovery).
+All three also work by double-clicking the `.exe` directly (no terminal
+needed) - `terminal-mafia-server.exe` starts on the default port 5050, and
+`terminal-mafia-client.exe` / `terminal-mafia-bot.exe` will try to find the
+server automatically on the local network/hotspot, falling back to asking
+for the host IP and port if nothing answers (some phone hotspots block
+this kind of discovery).
 
 (`terminal-mafia-bot.exe` is the AI bot, used automatically by `--bots N`.)
 Rebuild them yourself anytime with `pip install pyinstaller` and
