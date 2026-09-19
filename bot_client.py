@@ -5,6 +5,7 @@ Usage: python bot_client.py <host> <port> [name]
 find the server automatically, then prompt if it can't)
 """
 import random
+import re
 import socket
 import sys
 import time
@@ -20,6 +21,73 @@ CHAT_LINES = [
     "That vote yesterday felt off to me.",
     "I'll stay quiet and observe for now.",
 ]
+
+REACTION_TO_BEING_ACCUSED = [
+    "Wait, {accuser} thinks it's me? I promise I'm not the Grad Student!",
+    "{accuser}, why me? I've been nowhere near suspicious.",
+    "I'm innocent, {accuser} - you're barking up the wrong tree.",
+    "Really, {accuser}? That's a bold accusation with zero evidence.",
+]
+
+REACTION_TO_ACCUSATION = [
+    "{accuser} accusing {target}... I can see it.",
+    "Not sure I agree with {accuser} about {target}.",
+    "{target} does seem a little quiet, {accuser} might be onto something.",
+    "Interesting call, {accuser}. I'll be watching {target}.",
+]
+
+REACTION_TO_WARDEN_REPORT = [
+    "That Warden's report on {name} is definitely worth talking about.",
+    "{name} being reported missing... that's not nothing.",
+    "I keep thinking about the Warden's report on {name}.",
+    "We can't just ignore that {name}'s room was empty.",
+]
+
+REACTION_TO_ELIMINATION = [
+    "I can't believe we just lost {name}...",
+    "Losing {name} changes things.",
+    "{name} being gone worries me.",
+    "RIP {name}. Let's stay sharp.",
+]
+
+ELIMINATED_RE = re.compile(r"^(.+) has been voted out!$")
+INFECTED_RE = re.compile(r"^(.+) never woke up this morning\.\.\.$")
+WARDEN_RE = re.compile(r"^\[WARDEN'S REPORT\] (.+) was reported missing")
+ACCUSE_RE = re.compile(r"^\[ALERT\] (.+) publicly accuses (.+)! Suspicion board:")
+
+
+def pick_chat_line(state, name):
+    """React to whatever's most relevant right now, falling back to a
+    generic line - weighted so it's responsive but not deterministic."""
+    accuser = state.pop("accused_me_by", None)
+    if accuser and random.random() < 0.7:
+        return random.choice(REACTION_TO_BEING_ACCUSED).format(accuser=accuser)
+
+    flagged = state.get("warden_flag")
+    if flagged and random.random() < 0.35:
+        return random.choice(REACTION_TO_WARDEN_REPORT).format(name=flagged)
+
+    accusation = state.get("last_accusation")
+    if accusation and accusation[1] != name and random.random() < 0.3:
+        return random.choice(REACTION_TO_ACCUSATION).format(accuser=accusation[0], target=accusation[1])
+
+    eliminated = state.get("last_eliminated")
+    if eliminated and random.random() < 0.25:
+        return random.choice(REACTION_TO_ELIMINATION).format(name=eliminated)
+
+    return random.choice(CHAT_LINES)
+
+
+def pick_accuse_target(state, name):
+    """Mostly picks anyone, but leans toward whoever the Warden flagged -
+    bots treat that as real evidence, not a sure thing."""
+    others = [n for n in state["known_names"] if n != name]
+    if not others:
+        return None
+    flagged = state.get("warden_flag")
+    if flagged and flagged in others and random.random() < 0.6:
+        return flagged
+    return random.choice(others)
 
 
 def main():
@@ -84,26 +152,52 @@ def main():
 
         elif mtype == "text":
             text = msg.get("text", "")
+
+            m = ACCUSE_RE.match(text)
+            if m:
+                accuser, target = m.group(1), m.group(2)
+                state["last_accusation"] = (accuser, target)
+                if target == name:
+                    state["accused_me_by"] = accuser
+
+            m = WARDEN_RE.match(text)
+            if m:
+                state["warden_flag"] = m.group(1)
+
+            m = ELIMINATED_RE.match(text) or INFECTED_RE.match(text)
+            if m:
+                eliminated = m.group(1)
+                state["last_eliminated"] = eliminated
+                if state.get("warden_flag") == eliminated:
+                    state["warden_flag"] = None
+
             if not state["name_sent"] and "name" in text.lower():
                 time.sleep(random.uniform(0.2, 0.8))
                 send({"type": "input", "text": name})
                 state["name_sent"] = True
             elif "Discussion phase" in text:
                 time.sleep(random.uniform(2.0, 6.0))
-                others = [n for n in state["known_names"] if n != name]
-                if others and random.random() < 0.4:
-                    send({"type": "input", "text": f"accuse {random.choice(others)}"})
+                target = pick_accuse_target(state, name) if random.random() < 0.4 else None
+                if target:
+                    send({"type": "input", "text": f"accuse {target}"})
                 else:
-                    send({"type": "input", "text": random.choice(CHAT_LINES)})
+                    send({"type": "input", "text": pick_chat_line(state, name)})
             elif "last words" in text.lower() and text.startswith("You have been eliminated"):
                 time.sleep(random.uniform(0.5, 2.0))
                 send({"type": "input", "text": random.choice(["It wasn't me!", "You'll regret this.", "Good luck, village."])})
 
         elif mtype == "prompt":
             options = msg.get("options", [])
+            kind = msg.get("kind")
             time.sleep(random.uniform(1.0, 3.0))
             if options and random.random() > 0.1:
-                choice = random.choice(options)
+                choice = None
+                if kind == "vote":
+                    flagged = state.get("warden_flag")
+                    if flagged and random.random() < 0.6:
+                        choice = next((o for o in options if o["name"] == flagged), None)
+                if choice is None:
+                    choice = random.choice(options)
                 send({"type": "input", "text": str(choice["num"])})
             else:
                 send({"type": "input", "text": "skip"})

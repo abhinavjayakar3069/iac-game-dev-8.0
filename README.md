@@ -79,6 +79,11 @@ The host can add AI bot players right from their own client window - once
 you're the host, type `bots <N>` in the lobby (e.g. `bots 4`) to fill empty
 seats without needing anyone else. No separate command or window required.
 
+Bots react to what's actually happening rather than picking from a fixed
+list every time - they respond when accused, comment on a Warden's report,
+and lean toward accusing/voting for whoever a Warden flagged (treating it
+as real evidence, not a certainty). All rule-based, no external services.
+
 Alternatively, start the server with bots already attached from the CLI:
 
 ```bash
@@ -199,4 +204,8 @@ window.
 
 - No GUI/animations — colored ANSI text only, by design (CLI-only requirement).
 - Timed phases use fixed durations (`mafia/game.py`); tune `NIGHT_TIME`,
-  `DAY_DISCUSS_TIME`, `DAY_VOTE_TIME` for a faster or slower table.
+  `DAY_DISCUSS_TIME`, `DAY_VOTE_TIME`, `LAST_WORDS_TIME` for a faster or
+  slower table.
+- The client pauses briefly (`READ_DELAY` in `client.py`) after each chat/
+  text line so a burst of messages doesn't flash by unreadably fast — prompts
+  themselves are never delayed.

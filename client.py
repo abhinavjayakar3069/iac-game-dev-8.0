@@ -7,9 +7,16 @@ the server address and port interactively)
 import socket
 import sys
 import threading
+import time
 
 from mafia import discovery, protocol
 from mafia.colors import colorize
+
+# How long to pause after printing a chat/text line, so a burst of several
+# messages arriving at once (e.g. multiple bots talking back to back)
+# doesn't all flash by instantly. Doesn't apply to prompts - those need an
+# immediate reply, not a delay.
+READ_DELAY = 0.5
 
 # Legacy Windows consoles (default cmd.exe codepages) can't encode every
 # Unicode character; without this, a single odd character in any chat/
@@ -103,6 +110,8 @@ def receiver(sock, disconnected):
                 break
             for msg in reader.feed(data):
                 handle_message(msg)
+                if msg.get("type") in ("chat", "text"):
+                    time.sleep(READ_DELAY)
     except OSError:
         pass
     # Don't force-exit here: the main thread is likely still sitting in
