@@ -1,5 +1,5 @@
 __pycache__/
 *.pyc
-match_history/*.log
+**/match_history/*.log
 build/
 *.spec

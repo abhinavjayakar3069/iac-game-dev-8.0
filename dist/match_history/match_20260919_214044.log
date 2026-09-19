@@ -1,8 +1,0 @@
-[21:39:52] Bot579 joined.
-[21:39:56] hello joined.
-[21:40:00] hi joined.
-[21:40:09] helno joined.
-[21:40:11] Game started with 4 players: Bot579, hello, hi, helno
-[21:40:11] Role distribution: Bot579=Doctor, hello=Engineer, hi=Professor, helno=Professor
-[21:40:44] Night 1 result: ('none', None)
-[21:40:44] GAME OVER - mafia wins. Roles: {'Bot579': 'Doctor', 'hello': 'Engineer', 'hi': 'Professor', 'helno': 'Engineer'}. Scores: {'Bot579': -2, 'hello': 0, 'hi': 1, 'helno': 3}
