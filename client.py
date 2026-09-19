@@ -104,8 +104,9 @@ def handle_message(msg):
         winner_label = "THE INFILTRATORS" if winner == "mafia" else "THE CREW"
         print("\n" + colorize(f">> {winner_label} WIN <<", "bold"))
         print(colorize("Identities declassified:", "cyan"))
+        scores = msg.get("scores", {})
         for name, role in msg.get("roles", {}).items():
-            print(f"  {name}: {role}")
+            print(f"  {name}: {role} (score: {scores.get(name, 0)})")
 
 
 def receiver(sock):

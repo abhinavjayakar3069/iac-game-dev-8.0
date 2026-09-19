@@ -39,6 +39,8 @@ class GameServer:
     NIGHT_TIME = 35
     DAY_DISCUSS_TIME = 75
     DAY_VOTE_TIME = 30
+    CONVERT_ACCEPT_BONUS = 2
+    CONVERT_REFUSE_PENALTY = 1
 
     def __init__(self, host="0.0.0.0", port=5050, min_players=4):
         self.host = host
@@ -293,6 +295,53 @@ class GameServer:
         opts = [{"num": i + 1, "name": o.name} for i, o in enumerate(options)]
         self.send_to(p, {"type": "prompt", "kind": kind, "options": opts, "text": text, "time_limit": time_limit})
 
+    CONVERT_OFFER_TIME = 20
+
+    def _offer_conversion(self, target, engineers):
+        """Give a would-be conversion target a real choice instead of
+        silently flipping their role. Returns True if they accept.
+        A disconnected target, a timeout, or any answer other than
+        'accept' all count as a refusal."""
+        if not target.connected:
+            return False
+
+        target.pending = "action"
+        target.pending_kind = "convert_offer"
+        target.pending_options = []
+        self.send_to(target, {
+            "type": "prompt",
+            "kind": "convert_offer",
+            "options": [{"num": 1, "name": "Accept"}, {"num": 2, "name": "Refuse"}],
+            "text": "The Engineers want to recruit you! Accept and join them, or refuse and stay as you are:",
+            "time_limit": self.CONVERT_OFFER_TIME,
+        })
+
+        answer = {"accepted": False}
+
+        def on_message(pid, msg):
+            mtype = msg.get("type")
+            consumed = self._handle_common(pid, msg)
+            if mtype == "__disconnect__":
+                return pid == target.id
+            if consumed:
+                return False
+            p = self.players.get(pid)
+            if p is None:
+                return False
+            if p.id != target.id or p.pending != "action":
+                text = str(msg.get("text", "")).strip()
+                self._broadcast_chat(p, text)
+                return False
+            text = str(msg.get("text", "")).strip().lower()
+            p.pending = None
+            answer["accepted"] = text in ("1", "accept", "yes", "join")
+            return True
+
+        self._pump(time.time() + self.CONVERT_OFFER_TIME, on_message)
+        if target.pending == "action":
+            target.pending = None
+        return answer["accepted"]
+
     def _pump(self, deadline, on_message):
         while True:
             remaining = deadline - time.time()
@@ -459,10 +508,22 @@ class GameServer:
         victim = self.players.get(infect_target_id) if infect_target_id else None
 
         if victim and victim.id != saved_id and victim.role != roles.ENGINEER:
-            victim.role = roles.ENGINEER
-            self.send_to(victim, {"type":"role", "role": roles.ENGINEER, "description": roles.DESCRIPTIONS[roles.ENGINEER], "teammates": [p.name for p in mafia ]})
-            for e in mafia:
-                self.send_text(e, f"{victim.name} has been converted into an Engineer! They are now on your team.", "red")
+            if self._offer_conversion(victim, mafia):
+                victim.role = roles.ENGINEER
+                victim.score += self.CONVERT_ACCEPT_BONUS
+                self.send_to(victim, {
+                    "type": "role", "role": roles.ENGINEER,
+                    "description": roles.DESCRIPTIONS[roles.ENGINEER],
+                    "teammates": [p.name for p in mafia],
+                })
+                self.send_text(victim, f"You gain {self.CONVERT_ACCEPT_BONUS} points for joining the Engineers.", "green")
+                for e in mafia:
+                    self.send_text(e, f"{victim.name} accepted and is now an Engineer!", "red")
+            else:
+                victim.score -= self.CONVERT_REFUSE_PENALTY
+                self.send_text(victim, f"You lose {self.CONVERT_REFUSE_PENALTY} point(s) for refusing the Engineers' offer.", "yellow")
+                for e in mafia:
+                    self.send_text(e, f"{victim.name} refused to join your team.", "yellow")
 
         jail_target_id = self._plurality(list(jail_votes.values()))
         jailed = self.players.get(jail_target_id) if jail_target_id else None
@@ -626,13 +687,15 @@ class GameServer:
 
     def _end_game(self, winner):
         self.broadcast_phase("game_over")
-        role_list = {p.name: p.role for p in self.players.values() if p.name and not p.spectator}
+        named = [p for p in self.players.values() if p.name and not p.spectator]
+        role_list = {p.name: p.role for p in named}
+        score_list = {p.name: p.score for p in named}
         # The "game_over" message below carries the same winner + role list and
         # is what every client renders as the final screen - broadcasting the
         # same information again as plain text would just show it twice.
         for p in self.players.values():
-            self.send_to(p, {"type": "game_over", "winner": winner, "roles": role_list})
-        self._log(f"GAME OVER - {winner} wins. Roles: {role_list}")
+            self.send_to(p, {"type": "game_over", "winner": winner, "roles": role_list, "scores": score_list})
+        self._log(f"GAME OVER - {winner} wins. Roles: {role_list}. Scores: {score_list}")
         self._write_match_log()
 
     def _write_match_log(self):
