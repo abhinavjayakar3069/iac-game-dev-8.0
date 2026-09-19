@@ -1,0 +1,528 @@
+"""Core game server: connection handling and the night/day game loop.
+
+All game-state mutation happens on a single thread (the thread that calls
+GameServer.run). Per-connection reader threads only ever push messages onto
+a thread-safe queue; they never touch shared state directly. This keeps the
+game logic free of locking concerns while still supporting real concurrent
+socket I/O across many players.
+"""
+import os
+import queue
+import random
+import socket
+import threading
+import time
+from collections import Counter
+
+from mafia import protocol, roles
+
+
+class Player:
+    def __init__(self, pid, conn, addr):
+        self.id = pid
+        self.conn = conn
+        self.addr = addr
+        self.name = None
+        self.role = None
+        self.alive = True
+        self.connected = True
+        self.is_host = False
+        self.spectator = False
+        # Input routing state: what kind of reply we're expecting next.
+        self.pending = None          # None | "name" | "action"
+        self.pending_kind = None     # "kill" | "save" | "investigate" | "vote"
+        self.pending_options = []    # list[Player] the reply must resolve to
+
+
+class GameServer:
+    NIGHT_TIME = 35
+    DAY_DISCUSS_TIME = 75
+    DAY_VOTE_TIME = 30
+
+    def __init__(self, host="0.0.0.0", port=5050, min_players=4):
+        self.host = host
+        self.port = port
+        self.min_players = min_players
+
+        self.players = {}
+        self._players_lock = threading.Lock()
+        self.inbound = queue.Queue()
+        self._next_id = 1
+
+        self.log = []
+        self.round = 0
+        self.game_started = False
+        self.host_id = None
+        self.last_night_result = None
+        self._srv_sock = None
+
+    # ------------------------------------------------------------------ #
+    # Networking plumbing
+    # ------------------------------------------------------------------ #
+    def run(self):
+        self._srv_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._srv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._srv_sock.bind((self.host, self.port))
+        self._srv_sock.listen()
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+
+        try:
+            self.lobby_phase()
+            self.assign_roles()
+            while True:
+                self.night_phase()
+                if self.check_win():
+                    break
+                self.day_phase()
+                if self.check_win():
+                    break
+        finally:
+            time.sleep(2)
+            for p in list(self.players.values()):
+                try:
+                    p.conn.close()
+                except OSError:
+                    pass
+            try:
+                self._srv_sock.close()
+            except OSError:
+                pass
+
+    def _accept_loop(self):
+        while True:
+            try:
+                conn, addr = self._srv_sock.accept()
+            except OSError:
+                return
+            with self._players_lock:
+                pid = self._next_id
+                self._next_id += 1
+                p = Player(pid, conn, addr)
+                self.players[pid] = p
+            threading.Thread(target=self._client_reader, args=(p,), daemon=True).start()
+            self.inbound.put((pid, {"type": "__connected__"}))
+
+    def _client_reader(self, p):
+        reader = protocol.LineReader()
+        try:
+            while True:
+                data = p.conn.recv(4096)
+                if not data:
+                    break
+                for msg in reader.feed(data):
+                    self.inbound.put((p.id, msg))
+        except OSError:
+            pass
+        finally:
+            self.inbound.put((p.id, {"type": "__disconnect__"}))
+
+    def send_to(self, p, obj):
+        try:
+            p.conn.sendall(protocol.encode(obj))
+        except OSError:
+            p.connected = False
+
+    def send_text(self, p, text, color=None):
+        self.send_to(p, {"type": "text", "text": text, "color": color})
+
+    def broadcast_text(self, text, color=None, exclude=None):
+        for p in self.players.values():
+            if p.connected and p.id != exclude:
+                self.send_text(p, text, color)
+
+    def _log(self, text):
+        self.log.append(f"[{time.strftime('%H:%M:%S')}] {text}")
+        print(f"[server] {text}")
+
+    # ------------------------------------------------------------------ #
+    # Shared inbound-message handling
+    # ------------------------------------------------------------------ #
+    def _handle_common(self, pid, msg):
+        """Handle connect/disconnect/name-entry. Returns True if the
+        message was fully handled and needs no further action from the
+        caller."""
+        mtype = msg.get("type")
+
+        if mtype == "__connected__":
+            p = self.players.get(pid)
+            if p is None:
+                return True
+            p.pending = "name"
+            if self.game_started:
+                p.spectator = True
+                self.send_text(p, "The game is already in progress. Enter a name to join as a spectator:", "yellow")
+            else:
+                self.send_text(p, "Welcome to Terminal Mafia! Enter your name:", "cyan")
+            return True
+
+        if mtype == "__disconnect__":
+            p = self.players.get(pid)
+            if p:
+                was_named = p.name is not None
+                p.connected = False
+                if p.alive:
+                    p.alive = False
+                if was_named:
+                    self.broadcast_text(f"{p.name} has disconnected.", "yellow", exclude=pid)
+                    self._log(f"{p.name} disconnected.")
+                    if not self.game_started:
+                        self._broadcast_lobby()
+                if p.is_host:
+                    p.is_host = False
+                    self._reassign_host()
+            return True
+
+        if mtype != "input":
+            return True
+
+        p = self.players.get(pid)
+        if p is None or not p.connected:
+            return True
+
+        text = str(msg.get("text", "")).strip()
+
+        if p.pending == "name":
+            if not text:
+                self.send_text(p, "Name cannot be empty. Enter your name:", "red")
+                return True
+            if any(pl.name == text for pl in self.players.values() if pl.id != pid and pl.name):
+                self.send_text(p, "That name is taken. Enter a different name:", "red")
+                return True
+            p.name = text[:20]
+            p.pending = None
+            self._log(f"{p.name} joined." + (" (spectator)" if p.spectator else ""))
+            if p.spectator:
+                self.send_text(p, f"You are watching as a spectator, {p.name}. Your chat is only visible to other spectators/eliminated players.", "yellow")
+            else:
+                if self.host_id is None:
+                    self.host_id = pid
+                    p.is_host = True
+                if not self.game_started:
+                    self._broadcast_lobby()
+                    if p.is_host:
+                        self.send_text(p, f"You are the host. Type 'start' once at least {self.min_players} players have joined.", "cyan")
+            return True
+
+        return False  # caller resolves: pending action, or free chat
+
+    def _reassign_host(self):
+        for p in self.players.values():
+            if p.connected and p.name and not p.spectator:
+                p.is_host = True
+                self.host_id = p.id
+                self.send_text(p, "You are now the host. Type 'start' when ready.", "cyan")
+                return
+        self.host_id = None
+
+    def _broadcast_lobby(self):
+        names = [p.name for p in self.players.values() if p.connected and p.name and not p.spectator]
+        for p in self.players.values():
+            if p.connected and p.name and not p.spectator:
+                self.send_to(p, {"type": "lobby", "players": names, "min_players": self.min_players})
+
+    def _broadcast_chat(self, p, text):
+        if not text:
+            return
+        is_ghost = p.spectator or not p.alive
+        label = f"[spectator] {p.name}" if is_ghost else p.name
+        for other in self.players.values():
+            if not other.connected or not other.name:
+                continue
+            other_is_ghost = other.spectator or not other.alive
+            if is_ghost and not other_is_ghost:
+                continue  # the dead/spectators can't be heard by the living
+            self.send_to(other, {"type": "chat", "from": label, "text": text})
+        self._log(f"chat: {label}: {text}")
+
+    def _resolve_target(self, text, options):
+        """Returns (ok, target_or_None). ok=False means invalid input."""
+        t = text.strip()
+        if t.lower() in ("abstain", "skip"):
+            return True, None
+        if t.isdigit():
+            idx = int(t) - 1
+            if 0 <= idx < len(options):
+                return True, options[idx]
+            return False, None
+        for o in options:
+            if o.name.lower() == t.lower():
+                return True, o
+        return False, None
+
+    def _prompt(self, p, kind, options, text, time_limit):
+        p.pending = "action"
+        p.pending_kind = kind
+        p.pending_options = options
+        opts = [{"num": i + 1, "name": o.name} for i, o in enumerate(options)]
+        self.send_to(p, {"type": "prompt", "kind": kind, "options": opts, "text": text, "time_limit": time_limit})
+
+    def _pump(self, deadline, on_message):
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
+            try:
+                pid, msg = self.inbound.get(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue
+            if on_message(pid, msg):
+                return
+
+    def _plurality(self, values, tie_breaks_to_none=False):
+        values = [v for v in values if v is not None]
+        if not values:
+            return None
+        counts = Counter(values)
+        top = max(counts.values())
+        winners = [k for k, v in counts.items() if v == top]
+        if len(winners) > 1:
+            return None if tie_breaks_to_none else random.choice(winners)
+        return winners[0]
+
+    def _alive_players(self):
+        return [p for p in self.players.values() if p.connected and p.name and not p.spectator and p.alive]
+
+    def _all_named_active(self):
+        return [p for p in self.players.values() if p.connected and p.name and not p.spectator]
+
+    # ------------------------------------------------------------------ #
+    # Game phases
+    # ------------------------------------------------------------------ #
+    def lobby_phase(self):
+        print(f"[server] Listening on {self.host}:{self.port} - waiting for players (min {self.min_players})...")
+        while True:
+            pid, msg = self.inbound.get()
+            if self._handle_common(pid, msg):
+                continue
+            p = self.players.get(pid)
+            if p is None or p.spectator:
+                continue
+            text = str(msg.get("text", "")).strip()
+            if p.is_host and text.lower() == "start":
+                active = self._all_named_active()
+                if len(active) < self.min_players:
+                    self.send_text(p, f"Need at least {self.min_players} players to start (currently {len(active)}).", "red")
+                else:
+                    self.game_started = True
+                    self._log(f"Game started with {len(active)} players: " + ", ".join(x.name for x in active))
+                    return
+            else:
+                self._broadcast_chat(p, text)
+
+    def assign_roles(self):
+        active = self._all_named_active()
+        pool = roles.build_role_pool(len(active))
+        random.shuffle(pool)
+        for p, role in zip(active, pool):
+            p.role = role
+            p.alive = True
+
+        mafia_names = [p.name for p in active if p.role == roles.MAFIA]
+        for p in active:
+            teammates = [n for n in mafia_names if n != p.name] if p.role == roles.MAFIA else []
+            self.send_to(p, {
+                "type": "role",
+                "role": p.role,
+                "description": roles.DESCRIPTIONS[p.role],
+                "teammates": teammates,
+            })
+        self.broadcast_text(f"\nRoles assigned. {len(active)} players in play. Let the game begin!", "bold")
+        self._log("Role distribution: " + ", ".join(f"{p.name}={p.role}" for p in active))
+
+    def night_phase(self):
+        self.round += 1
+        self.broadcast_text(f"\n=== Night {self.round} ===", "blue")
+
+        alive = self._alive_players()
+        mafia = [p for p in alive if p.role == roles.MAFIA]
+        doctor = next((p for p in alive if p.role == roles.DOCTOR), None)
+        detective = next((p for p in alive if p.role == roles.DETECTIVE), None)
+
+        mafia_targets = [p for p in alive if p.role != roles.MAFIA]
+        for m in mafia:
+            self._prompt(m, "kill", mafia_targets, "Choose a target to eliminate:", self.NIGHT_TIME)
+        if doctor:
+            self._prompt(doctor, "save", alive, "Choose a player to protect:", self.NIGHT_TIME)
+        if detective:
+            invest_targets = [p for p in alive if p.id != detective.id]
+            self._prompt(detective, "investigate", invest_targets, "Choose a player to investigate:", self.NIGHT_TIME)
+
+        actors = set(m.id for m in mafia)
+        if doctor:
+            actors.add(doctor.id)
+        if detective:
+            actors.add(detective.id)
+        for p in alive:
+            if p.id not in actors:
+                self.send_text(p, "Night falls. Other roles are making their move... sit tight.", "dim")
+
+        kill_votes = {}
+        save_target = {}
+        pending_pids = set(actors)
+
+        def on_message(pid, msg):
+            mtype = msg.get("type")
+            consumed = self._handle_common(pid, msg)
+            if mtype == "__disconnect__":
+                pending_pids.discard(pid)
+                return len(pending_pids) == 0
+            if consumed:
+                return len(pending_pids) == 0
+
+            p = self.players.get(pid)
+            if p is None:
+                return len(pending_pids) == 0
+            if p.pending != "action":
+                # free chat from ghosts/idle alive players during the night
+                text = str(msg.get("text", "")).strip()
+                self._broadcast_chat(p, text)
+                return len(pending_pids) == 0
+
+            text = str(msg.get("text", "")).strip()
+            ok, target = self._resolve_target(text, p.pending_options)
+            if not ok:
+                self.send_text(p, "Invalid choice. Enter a number/name from the list, or 'skip'.", "red")
+                return len(pending_pids) == 0
+
+            p.pending = None
+            pending_pids.discard(pid)
+            kind = p.pending_kind
+            if kind == "kill" and target:
+                kill_votes[pid] = target.id
+            elif kind == "save":
+                save_target["id"] = target.id if target else None
+            elif kind == "investigate" and target:
+                is_mafia = target.role == roles.MAFIA
+                self.send_to(p, {"type": "investigate_result", "target": target.name, "is_mafia": is_mafia})
+            return len(pending_pids) == 0
+
+        self._pump(time.time() + self.NIGHT_TIME, on_message)
+        for p in list(self.players.values()):
+            if p.pending == "action":
+                p.pending = None
+
+        kill_target_id = self._plurality(list(kill_votes.values()))
+        saved_id = save_target.get("id")
+        victim = self.players.get(kill_target_id) if kill_target_id else None
+
+        if victim and victim.id == saved_id:
+            self.last_night_result = ("saved", victim.name)
+        elif victim:
+            victim.alive = False
+            self.last_night_result = ("killed", victim.name, victim.role)
+        else:
+            self.last_night_result = ("none", None)
+        self._log(f"Night {self.round} result: {self.last_night_result}")
+
+    def _describe_night_result(self):
+        r = self.last_night_result
+        if r is None or r[0] == "none":
+            return "No one was attacked last night."
+        if r[0] == "saved":
+            return f"{r[1]} was attacked last night, but the Doctor saved them!"
+        return f"{r[1]} was found dead this morning. They were a {r[2]}."
+
+    def day_phase(self):
+        self.broadcast_text(f"\n=== Day {self.round} ===", "yellow")
+        self.broadcast_text(self._describe_night_result(), "bold")
+
+        if self.check_win():
+            return
+
+        self.broadcast_text(f"Discussion phase ({self.DAY_DISCUSS_TIME}s). Type to chat with everyone.", "cyan")
+
+        def on_discuss(pid, msg):
+            consumed = self._handle_common(pid, msg)
+            if consumed:
+                return False
+            p = self.players.get(pid)
+            if p:
+                self._broadcast_chat(p, str(msg.get("text", "")).strip())
+            return False
+
+        self._pump(time.time() + self.DAY_DISCUSS_TIME, on_discuss)
+
+        alive = self._alive_players()
+        if len(alive) <= 1 or self.check_win():
+            return
+
+        self.broadcast_text(f"Voting phase ({self.DAY_VOTE_TIME}s). Choose who to eliminate.", "magenta")
+        for p in alive:
+            self._prompt(p, "vote", alive, "Vote to eliminate a player (or 'skip' to abstain):", self.DAY_VOTE_TIME)
+
+        votes = {}
+        pending_pids = set(p.id for p in alive)
+
+        def on_vote(pid, msg):
+            mtype = msg.get("type")
+            consumed = self._handle_common(pid, msg)
+            if mtype == "__disconnect__":
+                pending_pids.discard(pid)
+                return len(pending_pids) == 0
+            if consumed:
+                return len(pending_pids) == 0
+
+            p = self.players.get(pid)
+            if p is None:
+                return len(pending_pids) == 0
+            if p.pending != "action":
+                text = str(msg.get("text", "")).strip()
+                self._broadcast_chat(p, text)
+                return len(pending_pids) == 0
+
+            text = str(msg.get("text", "")).strip()
+            ok, target = self._resolve_target(text, p.pending_options)
+            if not ok:
+                self.send_text(p, "Invalid choice. Enter a number/name from the list, or 'skip'.", "red")
+                return len(pending_pids) == 0
+
+            p.pending = None
+            pending_pids.discard(pid)
+            if target:
+                votes[pid] = target.id
+            return len(pending_pids) == 0
+
+        self._pump(time.time() + self.DAY_VOTE_TIME, on_vote)
+        for p in list(self.players.values()):
+            if p.pending == "action":
+                p.pending = None
+
+        eliminated_id = self._plurality(list(votes.values()), tie_breaks_to_none=True)
+        if eliminated_id is None:
+            self.broadcast_text("The vote is tied or inconclusive. No one is eliminated.", "yellow")
+            self._log(f"Day {self.round}: no elimination (tie/no votes).")
+        else:
+            victim = self.players.get(eliminated_id)
+            victim.alive = False
+            self.broadcast_text(f"{victim.name} has been voted out. They were a {victim.role}.", "red")
+            self._log(f"Day {self.round}: {victim.name} eliminated ({victim.role}).")
+
+    def check_win(self):
+        alive = self._alive_players()
+        mafia_alive = [p for p in alive if p.role == roles.MAFIA]
+        good_alive = [p for p in alive if p.role != roles.MAFIA]
+        if not mafia_alive:
+            self._end_game("village")
+            return True
+        if len(mafia_alive) >= len(good_alive):
+            self._end_game("mafia")
+            return True
+        return False
+
+    def _end_game(self, winner):
+        role_list = {p.name: p.role for p in self.players.values() if p.name and not p.spectator}
+        headline = "The Village wins!" if winner == "village" else "The Mafia wins!"
+        self.broadcast_text(f"\n=== GAME OVER === {headline}", "bold")
+        lines = "\n".join(f"  {name}: {role}" for name, role in role_list.items())
+        self.broadcast_text("Final roles:\n" + lines, "cyan")
+        for p in self.players.values():
+            self.send_to(p, {"type": "game_over", "winner": winner, "roles": role_list})
+        self._log(f"GAME OVER - {winner} wins. Roles: {role_list}")
+        self._write_match_log()
+
+    def _write_match_log(self):
+        os.makedirs("match_history", exist_ok=True)
+        fname = os.path.join("match_history", f"match_{time.strftime('%Y%m%d_%H%M%S')}.log")
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write("\n".join(self.log))
+        print(f"[server] Match log written to {fname}")

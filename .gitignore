@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+match_history/*.log
+build/
+dist/
+*.spec
