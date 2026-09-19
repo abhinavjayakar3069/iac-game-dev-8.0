@@ -45,8 +45,7 @@ class GameServer:
         self.port = port
         self.min_players = min_players
 
-        self.players = {}   
-        self._players_lock = threading.Lock()
+        self.players = {}
         self.inbound = queue.Queue()
         self._next_id = 1
 
@@ -90,18 +89,21 @@ class GameServer:
                 pass
 
     def _accept_loop(self):
+        # This runs on its own thread, so it must never touch self.players
+        # directly - the main game-loop thread is the sole owner of that
+        # dict (see module docstring). The new Player is handed off through
+        # the inbound queue and only inserted once the main thread processes
+        # the __connected__ event, in _handle_common.
         while True:
             try:
                 conn, addr = self._srv_sock.accept()
             except OSError:
                 return
-            with self._players_lock:
-                pid = self._next_id
-                self._next_id += 1
-                p = Player(pid, conn, addr)
-                self.players[pid] = p
+            pid = self._next_id
+            self._next_id += 1
+            p = Player(pid, conn, addr)
             threading.Thread(target=self._client_reader, args=(p,), daemon=True).start()
-            self.inbound.put((pid, {"type": "__connected__"}))
+            self.inbound.put((pid, {"type": "__connected__", "player": p}))
 
     def _client_reader(self, p):
         reader = protocol.LineReader()
@@ -152,9 +154,10 @@ class GameServer:
         mtype = msg.get("type")
 
         if mtype == "__connected__":
-            p = self.players.get(pid)
+            p = msg.get("player")
             if p is None:
                 return True
+            self.players[p.id] = p
             p.pending = "name"
             if self.game_started:
                 p.spectator = True
@@ -439,7 +442,7 @@ class GameServer:
                 infect_votes[pid] = target.id
             elif kind == "save":
                 save_target["id"] = target.id if target else None
-            elif kind == "jail" and target:
+            elif kind == "detain" and target:
                 jail_votes[pid] = target.id
             elif kind == "steal" and target:
                 target.score-=1; p.score+=1
@@ -624,10 +627,9 @@ class GameServer:
     def _end_game(self, winner):
         self.broadcast_phase("game_over")
         role_list = {p.name: p.role for p in self.players.values() if p.name and not p.spectator}
-        headline = "The Non-Engineers Win!" if winner == "village" else "The Engineers Win!"
-        self.broadcast_text(f"\n=== GAME OVER === {headline}", "bold")
-        lines = "\n".join(f"  {name}: {role}" for name, role in role_list.items())
-        self.broadcast_text("Final roles:\n" + lines, "cyan")
+        # The "game_over" message below carries the same winner + role list and
+        # is what every client renders as the final screen - broadcasting the
+        # same information again as plain text would just show it twice.
         for p in self.players.values():
             self.send_to(p, {"type": "game_over", "winner": winner, "roles": role_list})
         self._log(f"GAME OVER - {winner} wins. Roles: {role_list}")

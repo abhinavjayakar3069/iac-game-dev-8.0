@@ -9,7 +9,6 @@ import os
 import socket
 import sys
 import threading
-import time
 
 from mafia import protocol
 from mafia.colors import colorize
@@ -38,27 +37,19 @@ PHASE_BANNERS = {
 }
 
 ROLE_DISPLAY = {
-    "Mafia": ("INFILTRATOR", "Embedded operative - sabotage the crew from within."),
-    "Doctor": ("FIREWALL SPECIALIST", "Shield one system from tonight's breach."),
-    "Detective": ("WHITE-HAT", "Scan one target per cycle for intrusions."),
-    "Villager": ("CREW MEMBER", "Trusted crew - root out the infiltrator before it's too late."),
-    "Professor": ("CYBER INTELLIGENCE AGENT", "Gather information about other players' roles."),
+    "Engineer": ("INFILTRATOR", "Each night, convert one player into a fellow Engineer. Win when Engineers equal or outnumber everyone else."),
+    "Doctor": ("FIREWALL SPECIALIST", "Each night, shield one player from being converted."),
+    "Police": ("ENFORCER", "Each night, send one player to jail - they're eliminated, no exceptions."),
+    "Professor": ("ANALYST", "Each night, deduct a point from another player and add it to your own score."),
 }
 
 PROMPT_LABELS = {
-    "infect": "SELECT TARGET TO INFECT",
-    "save": "SELECT SYSTEM TO FIREWALL",
+    "infect": "SELECT TARGET TO CONVERT",
+    "save": "SELECT PLAYER TO PROTECT",
     "detain": "SELECT PLAYER TO SEND TO JAIL",
-    "vote": "CAST YOUR VOTE - WHO IS THE INFILTRATOR?",
+    "steal": "SELECT PLAYER TO DEDUCT A POINT FROM",
+    "vote": "CAST YOUR VOTE - WHO IS AN ENGINEER?",
 }
-
-
-def typing_effect(text, color=None, delay=0.012):
-    for ch in text:
-        sys.stdout.write(colorize(ch, color))
-        sys.stdout.flush()
-        time.sleep(delay)
-    print()
 
 
 def phase_banner(phase, round_no):
@@ -91,12 +82,13 @@ def handle_message(msg):
         role = msg.get("role")
         codename, flavor = ROLE_DISPLAY.get(role, (role, ""))
         print()
-        typing_effect("> DECRYPTING CLASSIFIED DOSSIER...", "green")
-        print(colorize(f"=== YOUR COVER IDENTITY: {role.upper()} ({codename}) ===", "bold"))
+        print(colorize(f"=== YOUR ROLE: {role.upper()} ===", "bold"))
+        if codename:
+            print(colorize(f"(codename: {codename})", "dim"))
         print(colorize(flavor, "magenta"))
         teammates = msg.get("teammates") or []
         if teammates:
-            print(colorize("Fellow infiltrators in the network: " + ", ".join(teammates), "red"))
+            print(colorize("Your fellow Engineers: " + ", ".join(teammates), "red"))
 
     elif mtype == "prompt":
         label = PROMPT_LABELS.get(msg.get("kind"), msg.get("text", "Choose:"))
@@ -106,10 +98,6 @@ def handle_message(msg):
             print(f"  {opt['num']}. {opt['name']}")
         print(colorize(f"(You have {msg.get('time_limit')}s. Type a number, a name, or 'skip'.)", "dim"))
         print("> ", end="", flush=True)
-
-    elif mtype == "investigate_result":
-        verdict = "FLAGGED AS INFILTRATOR" if msg.get("is_mafia") else "CLEAN - no intrusion detected"
-        print("\n" + colorize(f"> SCAN COMPLETE: {msg.get('target')} - {verdict}", "cyan"))
 
     elif mtype == "game_over":
         winner = msg.get("winner")
@@ -143,10 +131,9 @@ def main():
     port = int(sys.argv[2])
 
     print(colorize(ASCII_BANNER, "cyan"))
-    typing_effect(f"> ESTABLISHING SECURE UPLINK TO {host}:{port}...", "dim")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((host, port))
-    typing_effect("> UPLINK ESTABLISHED.", "green")
+    print(colorize(f"Connected to {host}:{port}.", "green"))
 
     threading.Thread(target=receiver, args=(sock,), daemon=True).start()
 

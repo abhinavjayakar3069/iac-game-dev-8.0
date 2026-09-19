@@ -19,38 +19,38 @@ class ComputeRolesTests(unittest.TestCase):
 
     def test_counts_sum_to_total_for_a_wide_range(self):
         for n in range(4, 30):
-            mafia, doctor, detective, villager = roles.compute_roles(n)
-            self.assertEqual(mafia + doctor + detective + villager, n)
+            engineer, doctor, police, professor = roles.compute_roles(n)
+            self.assertEqual(engineer + doctor + police + professor, n)
 
-    def test_at_least_one_mafia_always(self):
+    def test_at_least_one_engineer_always(self):
         for n in range(4, 30):
-            mafia, _, _, _ = roles.compute_roles(n)
-            self.assertGreaterEqual(mafia, 1)
+            engineer, _, _, _ = roles.compute_roles(n)
+            self.assertGreaterEqual(engineer, 1)
 
     def test_doctor_present_from_minimum_players(self):
         for n in range(4, 30):
             _, doctor, _, _ = roles.compute_roles(n)
             self.assertEqual(doctor, 1)
 
-    def test_detective_only_from_five_players_up(self):
-        _, _, detective4, _ = roles.compute_roles(4)
-        self.assertEqual(detective4, 0)
+    def test_police_only_from_five_players_up(self):
+        _, _, police4, _ = roles.compute_roles(4)
+        self.assertEqual(police4, 0)
         for n in range(5, 30):
-            _, _, detective, _ = roles.compute_roles(n)
-            self.assertEqual(detective, 1)
+            _, _, police, _ = roles.compute_roles(n)
+            self.assertEqual(police, 1)
 
-    def test_village_never_outnumbered_at_role_assignment(self):
-        # The game would be trivially unwinnable if Mafia started already
-        # equal to or greater than the rest of the village.
+    def test_non_engineers_never_outnumbered_at_role_assignment(self):
+        # The game would be trivially unwinnable if Engineers started already
+        # equal to or greater than everyone else.
         for n in range(4, 30):
-            mafia, doctor, detective, villager = roles.compute_roles(n)
-            good = doctor + detective + villager
-            self.assertLess(mafia, good, f"n={n}: mafia={mafia} good={good}")
+            engineer, doctor, police, professor = roles.compute_roles(n)
+            good = doctor + police + professor
+            self.assertLess(engineer, good, f"n={n}: engineer={engineer} good={good}")
 
-    def test_villager_count_never_negative(self):
+    def test_professor_count_never_negative(self):
         for n in range(4, 30):
-            _, _, _, villager = roles.compute_roles(n)
-            self.assertGreaterEqual(villager, 0)
+            _, _, _, professor = roles.compute_roles(n)
+            self.assertGreaterEqual(professor, 0)
 
 
 class BuildRolePoolTests(unittest.TestCase):
@@ -60,12 +60,12 @@ class BuildRolePoolTests(unittest.TestCase):
             self.assertEqual(len(pool), n)
 
     def test_pool_contains_only_known_roles(self):
-        known = {roles.MAFIA, roles.DOCTOR, roles.DETECTIVE, roles.VILLAGER}
+        known = {roles.ENGINEER, roles.DOCTOR, roles.POLICE, roles.PROFESSOR}
         pool = roles.build_role_pool(10)
         self.assertTrue(set(pool).issubset(known))
 
     def test_every_role_has_a_description(self):
-        for role in (roles.MAFIA, roles.DOCTOR, roles.DETECTIVE, roles.VILLAGER):
+        for role in (roles.ENGINEER, roles.DOCTOR, roles.POLICE, roles.PROFESSOR):
             self.assertIn(role, roles.DESCRIPTIONS)
             self.assertTrue(roles.DESCRIPTIONS[role])
 
