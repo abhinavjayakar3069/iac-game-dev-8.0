@@ -19,38 +19,44 @@ class ComputeRolesTests(unittest.TestCase):
 
     def test_counts_sum_to_total_for_a_wide_range(self):
         for n in range(4, 30):
-            engineer, doctor, police, professor = roles.compute_roles(n)
-            self.assertEqual(engineer + doctor + police + professor, n)
+            grad_student, mentor, warden, professor, student = roles.compute_roles(n)
+            self.assertEqual(grad_student + mentor + warden + professor + student, n)
 
-    def test_at_least_one_engineer_always(self):
+    def test_exactly_one_grad_student_always(self):
         for n in range(4, 30):
-            engineer, _, _, _ = roles.compute_roles(n)
-            self.assertGreaterEqual(engineer, 1)
+            grad_student, _, _, _, _ = roles.compute_roles(n)
+            self.assertEqual(grad_student, 1)
 
-    def test_doctor_present_from_minimum_players(self):
+    def test_mentor_present_from_minimum_players(self):
         for n in range(4, 30):
-            _, doctor, _, _ = roles.compute_roles(n)
-            self.assertEqual(doctor, 1)
+            _, mentor, _, _, _ = roles.compute_roles(n)
+            self.assertEqual(mentor, 1)
 
-    def test_police_only_from_five_players_up(self):
-        _, _, police4, _ = roles.compute_roles(4)
-        self.assertEqual(police4, 0)
-        for n in range(5, 30):
-            _, _, police, _ = roles.compute_roles(n)
-            self.assertEqual(police, 1)
-
-    def test_non_engineers_never_outnumbered_at_role_assignment(self):
-        # The game would be trivially unwinnable if Engineers started already
-        # equal to or greater than everyone else.
+    def test_warden_present_from_minimum_players(self):
         for n in range(4, 30):
-            engineer, doctor, police, professor = roles.compute_roles(n)
-            good = doctor + police + professor
-            self.assertLess(engineer, good, f"n={n}: engineer={engineer} good={good}")
+            _, _, warden, _, _ = roles.compute_roles(n)
+            self.assertEqual(warden, 1)
 
-    def test_professor_count_never_negative(self):
+    def test_professor_only_from_seven_players_up(self):
+        for n in (4, 5, 6):
+            _, _, _, professor, _ = roles.compute_roles(n)
+            self.assertEqual(professor, 0)
+        for n in range(7, 30):
+            _, _, _, professor, _ = roles.compute_roles(n)
+            self.assertEqual(professor, 1)
+
+    def test_grad_student_never_outnumbers_everyone_else_at_assignment(self):
+        # The game would be trivially unwinnable if the Grad Student started
+        # already equal to or greater than everyone else.
         for n in range(4, 30):
-            _, _, _, professor = roles.compute_roles(n)
-            self.assertGreaterEqual(professor, 0)
+            grad_student, mentor, warden, professor, student = roles.compute_roles(n)
+            good = mentor + warden + professor + student
+            self.assertLess(grad_student, good, f"n={n}: grad_student={grad_student} good={good}")
+
+    def test_student_count_never_negative(self):
+        for n in range(4, 30):
+            _, _, _, _, student = roles.compute_roles(n)
+            self.assertGreaterEqual(student, 0)
 
 
 class BuildRolePoolTests(unittest.TestCase):
@@ -60,12 +66,16 @@ class BuildRolePoolTests(unittest.TestCase):
             self.assertEqual(len(pool), n)
 
     def test_pool_contains_only_known_roles(self):
-        known = {roles.ENGINEER, roles.DOCTOR, roles.POLICE, roles.PROFESSOR}
+        known = {roles.STUDENT, roles.GRAD_STUDENT, roles.MENTOR, roles.WARDEN, roles.PROFESSOR}
         pool = roles.build_role_pool(10)
         self.assertTrue(set(pool).issubset(known))
 
+    def test_professor_absent_below_seven_players(self):
+        pool = roles.build_role_pool(6)
+        self.assertNotIn(roles.PROFESSOR, pool)
+
     def test_every_role_has_a_description(self):
-        for role in (roles.ENGINEER, roles.DOCTOR, roles.POLICE, roles.PROFESSOR):
+        for role in (roles.STUDENT, roles.GRAD_STUDENT, roles.MENTOR, roles.WARDEN, roles.PROFESSOR):
             self.assertIn(role, roles.DESCRIPTIONS)
             self.assertTrue(roles.DESCRIPTIONS[role])
 

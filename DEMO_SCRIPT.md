@@ -18,12 +18,13 @@ elimination) live, with real people, and let the terminal UI carry the "wow."
 
 1. **(0:00-0:30) Cold open** - show the server terminal starting up, then 2-4
    client terminals connecting side by side (split screen or multiple phones
-   filming multiple screens). Let the Ghost Protocol banner + typing effect
-   play out on at least one client - it's the most visually distinct moment.
+   filming multiple screens). Let the banner + typing effect play out on at
+   least one client - it's the most visually distinct moment.
 2. **(0:30-1:00) Role reveal** - show one player's screen as their role comes
-   in (ideally the Mafia player, muted/whispering "oh no" for effect).
-3. **(1:00-1:45) Night phase** - narrate what's happening off-screen (Mafia
-   picking a target) while the other players' screens show "sit tight."
+   in (ideally the Grad Student player, muted/whispering "oh no" for effect).
+3. **(1:00-1:45) Night phase** - narrate what's happening off-screen (the
+   Grad Student picking a target) while the other players' screens show
+   "sit tight."
 4. **(1:45-3:00) Day: discussion + accusation board** - this is the key
    original mechanic. Have 2+ players actually type `accuse <name>` on camera
    so the live suspicion tally updates and everyone reacts to it.

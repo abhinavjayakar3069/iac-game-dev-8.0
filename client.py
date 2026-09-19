@@ -1,7 +1,4 @@
-"""Terminal Mafia: Ghost Protocol - human player client.
-
-A hacker/heist presentation skin over the standard Mafia mechanic: the
-wire protocol and roles are unchanged, only how they're displayed here.
+"""Terminal Mafia: campus intrigue - human player client.
 
 Usage: python client.py <host> <port>
 (or just python client.py / double-click the .exe - it will prompt for
@@ -32,25 +29,18 @@ ASCII_BANNER = r"""
 """
 
 PHASE_BANNERS = {
-    "night": ("INFILTRATION", "blue"),
-    "day_discuss": ("COUNTERMEASURES SWEEP", "yellow"),
-    "vote": ("PURGE PROTOCOL", "red"),
-    "game_over": ("LOCKDOWN COMPLETE", "green"),
-}
-
-ROLE_DISPLAY = {
-    "Engineer": ("INFILTRATOR", "Each night, convert one player into a fellow Engineer. Win when Engineers equal or outnumber everyone else."),
-    "Doctor": ("FIREWALL SPECIALIST", "Each night, shield one player from being converted."),
-    "Police": ("ENFORCER", "Each night, investigate one player and privately learn if they're an Engineer."),
-    "Professor": ("ANALYST", "Each night, deduct a point from another player and add it to your own score."),
+    "night": ("AFTER HOURS", "blue"),
+    "day_discuss": ("OFFICE HOURS", "yellow"),
+    "vote": ("DEPARTMENT VOTE", "red"),
+    "game_over": ("FINAL GRADES", "green"),
 }
 
 PROMPT_LABELS = {
-    "infect": "SELECT TARGET TO CONVERT",
+    "infect": "SELECT STUDENT TO INFLUENCE",
     "save": "SELECT PLAYER TO PROTECT",
-    "investigate": "SELECT PLAYER TO INVESTIGATE",
+    "inspect": "SELECT A PLAYER'S ROOM TO CHECK",
     "steal": "SELECT PLAYER TO DEDUCT A POINT FROM",
-    "vote": "CAST YOUR VOTE - WHO IS AN ENGINEER?",
+    "vote": "CAST YOUR VOTE - WHO IS THE GRAD STUDENT?",
 }
 
 
@@ -78,19 +68,13 @@ def handle_message(msg):
     elif mtype == "lobby":
         names = msg.get("players", [])
         print("\n" + colorize(
-            f"Operatives connected ({len(names)}/{msg.get('min_players')} min): " + ", ".join(names), "cyan"))
+            f"Students connected ({len(names)}/{msg.get('min_players')} min): " + ", ".join(names), "cyan"))
 
     elif mtype == "role":
         role = msg.get("role")
-        codename, flavor = ROLE_DISPLAY.get(role, (role, ""))
         print()
         print(colorize(f"=== YOUR ROLE: {role.upper()} ===", "bold"))
-        if codename:
-            print(colorize(f"(codename: {codename})", "dim"))
-        print(colorize(flavor, "magenta"))
-        teammates = msg.get("teammates") or []
-        if teammates:
-            print(colorize("Your fellow Engineers: " + ", ".join(teammates), "red"))
+        print(colorize(msg.get("description", ""), "magenta"))
 
     elif mtype == "prompt":
         label = PROMPT_LABELS.get(msg.get("kind"), msg.get("text", "Choose:"))
@@ -103,9 +87,9 @@ def handle_message(msg):
 
     elif mtype == "game_over":
         winner = msg.get("winner")
-        winner_label = "THE INFILTRATORS" if winner == "mafia" else "THE CREW"
+        winner_label = "THE GRAD STUDENT" if winner == "grad_student" else "THE STUDENTS"
         print("\n" + colorize(f">> {winner_label} WIN <<", "bold"))
-        print(colorize("Identities declassified:", "cyan"))
+        print(colorize("Roles revealed:", "cyan"))
         scores = msg.get("scores", {})
         for name, role in msg.get("roles", {}).items():
             print(f"  {name}: {role} (score: {scores.get(name, 0)})")

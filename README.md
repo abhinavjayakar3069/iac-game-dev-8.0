@@ -1,12 +1,13 @@
-# Terminal Mafia — Ghost Protocol
+# Terminal Mafia
 
 A local-hosted, multiplayer, terminal-based social deduction game (Mafia / Among Us
 style) built for **ROOT 36 — IAC 8.0, IIT Palakkad**.
 
-"Ghost Protocol" is a hacker/heist presentation skin on top of the standard Mafia
-mechanic: an infiltrator is hiding among a crew of operatives. The wire protocol
-and game rules are untouched — only the terminal client's banners, role flavor
-text, and phase names are themed.
+A campus-intrigue presentation skin on top of the standard Mafia mechanic: a
+Grad Student is quietly picking off students one by one, while a Mentor and a
+Warden try to stop them before everyone else runs out. The wire protocol and
+core game loop are the same shape as classic Mafia — only the roles, phase
+names, and flavor text are themed.
 
 One player hosts a game server on their machine; everyone else connects from their
 own terminal — either other windows on the same machine, or other devices on the
@@ -92,49 +93,52 @@ python server.py [--port 5050] [--host 0.0.0.0] [--min-players 4] [--bots 0]
 
 ## How to play
 
-Each night, players with special roles secretly submit an action. Each day, the
-crew discusses in an open chat, then votes to eliminate a suspect.
+A campus intrigue reskin of the standard Mafia/Werewolf mechanic. Each night,
+players with special roles secretly submit an action. Each day, everyone
+discusses in an open chat, then votes to eliminate a suspect.
 
 | Role | Team | Ability |
 |---|---|---|
-| **Engineer** | Engineers | Each night, the Engineers (who know each other) jointly choose one player to try to convert. The target gets a real choice — accept and join the Engineers, or refuse and stay as they are. |
-| **Doctor** | Everyone else | Each night, protect one player (including themselves) from being converted. |
-| **Police** | Everyone else | Each night, investigate one player and privately learn whether they're an Engineer. |
-| **Professor** | Everyone else | Each night, deduct a point from another player and add it to your own score. No effect on who's alive. |
+| **Grad Student** | Alone | Always exactly one. Each night, chooses another student to influence. The target isn't told - they quietly die at the start of the *following* night, unless the Mentor protects them that same night. Wins once their side reaches parity with everyone else remaining. |
+| **Mentor** | Everyone else | Each night, freely chooses one player (including themselves) to protect from the Grad Student's influence. Protection only blocks *that night's* attempt - it can't save someone already marked from a previous night. |
+| **Warden** | Everyone else | Each night, checks one player's room. If that player is the Grad Student *and* the Grad Student went out that night, their room turns up empty - the Warden is told immediately, and it's announced publicly the next morning. Checking anyone else (or the Grad Student on a night they didn't act) turns up nothing. |
+| **Professor** (7+ players only) | Everyone else | Each night, deduct a point from another player and add it to your own score. No effect on who's alive. |
+| **Student** | Everyone else | No special ability - just a vote and your read on the room. |
 
-Role counts scale with the number of players (roughly 1 Engineer per 5 players, 1
-Doctor always, 1 Police from 5 players up, everyone else is a Professor). Every
-player only ever sees information their own role is entitled to — hidden state
-lives entirely on the server and is never sent to clients that shouldn't see it.
+Role counts scale with the player count: always exactly 1 Grad Student, 1
+Mentor, 1 Warden; a Professor is added once there are 7+ players; everyone
+else is a Student. Every player only ever sees information their own role
+is entitled to - hidden state lives entirely on the server and is never sent
+to clients that shouldn't see it.
 
-Nothing kills at night anymore — Police investigates instead of jailing, and
-Engineer conversion just switches teams. The **day vote is the only way anyone
-is ever eliminated**, so Police's information is what the crew actually has to
-work with when deciding who to vote out. If a day vote ties or gets no votes
-two times in a row, the tie is broken at random rather than letting the game
-stall forever.
+**The Grad Student's influence doesn't kill instantly.** The target isn't
+removed until the *following* night - the only immediate elimination is the
+**day vote**. If a day vote ties or gets no votes two times in a row, the
+tie is broken at random rather than letting the game stall forever.
 
-**Conversion is a choice, not a coin flip you don't get a say in.** Accepting an
-Engineer's offer gives you +2 points and puts you on their team; refusing costs
-you 1 point but keeps your original role. Final scores are shown on the
-end-of-game screen for everyone.
+**The Warden's report is evidence, not a verdict.** It only surfaces the
+Grad Student if the Warden happened to check the right room on a night they
+were actually active - a wrong guess reveals nothing, and it never removes
+anyone by itself. The community still has to act on it through the normal
+day vote.
 
 **Discussion isn't just a timer.** During the day, type `accuse <name>` to publicly
 flag a suspect — it updates a live suspicion tally broadcast to the whole table,
 on top of free-form chat.
 
-**Last words.** A player voted out during the day gets a short window to speak
-before their identity is revealed to everyone.
+**Last words.** A player eliminated (by day vote, or once a delayed influence
+resolves) gets a short window to speak before their identity is revealed to
+everyone.
 
 **Win conditions**
 
-- **Everyone else wins** the moment every Engineer has been eliminated.
-- **The Engineers win** the moment their count is greater than or equal to
-  everyone else remaining.
+- **Everyone else wins** the moment the Grad Student has been eliminated.
+- **The Grad Student wins** the moment everyone else remaining is down to
+  one player or fewer.
 
-Eliminated players (by day vote) become **spectators**: they keep receiving
-the live game feed, but their chat is only visible to other
-spectators/eliminated players, never to the living.
+Eliminated players become **spectators**: they keep receiving the live game
+feed, but their chat is only visible to other spectators/eliminated players,
+never to the living.
 
 **Reconnecting.** If you drop mid-game, reconnect with `python client.py <host> <port>`
 and enter the *exact same name* you had before — you'll resume your seat, role,

@@ -16,7 +16,7 @@ CHAT_LINES = [
     "Someone's acting suspicious today.",
     "Let's think this through carefully.",
     "I have a feeling about someone...",
-    "We need to work together to find the Mafia.",
+    "We need to work together to find the Grad Student.",
     "That vote yesterday felt off to me.",
     "I'll stay quiet and observe for now.",
 ]

@@ -48,7 +48,7 @@ class Player:
         self.score = 0
         # Input routing state: what kind of reply we're expecting next.
         self.pending = None          # None | "name" | "action"
-        self.pending_kind = None     # "kill" | "save" | "investigate" | "vote"
+        self.pending_kind = None     # "infect" | "save" | "inspect" | "steal" | "vote"
         self.pending_options = []    # list[Player] the reply must resolve to
 
 
@@ -56,8 +56,6 @@ class GameServer:
     NIGHT_TIME = 35
     DAY_DISCUSS_TIME = 45
     DAY_VOTE_TIME = 30
-    CONVERT_ACCEPT_BONUS = 2
-    CONVERT_REFUSE_PENALTY = 1
     MAX_BOTS_PER_REQUEST = 20
 
     def __init__(self, host="0.0.0.0", port=5050, min_players=4):
@@ -74,6 +72,8 @@ class GameServer:
         self.game_started = False
         self.host_id = None
         self._no_elim_streak = 0
+        self.pending_infection_id = None
+        self.pending_suspicion_id = None
         self._srv_sock = None
 
     # ------------------------------------------------------------------ #
@@ -329,52 +329,47 @@ class GameServer:
         opts = [{"num": i + 1, "name": o.name} for i, o in enumerate(options)]
         self.send_to(p, {"type": "prompt", "kind": kind, "options": opts, "text": text, "time_limit": time_limit})
 
-    CONVERT_OFFER_TIME = 20
+    def _eliminate_with_last_words(self, victim, announce_text):
+        """Kill victim, give them a short public last-words window if
+        they're still connected, then reveal their role. Shared by the day
+        vote and the delayed infection resolution."""
+        victim.alive = False
+        self.broadcast_text(announce_text, "red")
+        if victim.connected:
+            self.send_text(victim, "You have been eliminated. You have 15 seconds for last words, seen by everyone:", "yellow")
 
-    def _offer_conversion(self, target, engineers):
-        """Give a would-be conversion target a real choice instead of
-        silently flipping their role. Returns True if they accept.
-        A disconnected target, a timeout, or any answer other than
-        'accept' all count as a refusal."""
-        if not target.connected:
-            return False
-
-        target.pending = "action"
-        target.pending_kind = "convert_offer"
-        target.pending_options = []
-        self.send_to(target, {
-            "type": "prompt",
-            "kind": "convert_offer",
-            "options": [{"num": 1, "name": "Accept"}, {"num": 2, "name": "Refuse"}],
-            "text": "The Engineers want to recruit you! Accept and join them, or refuse and stay as you are:",
-            "time_limit": self.CONVERT_OFFER_TIME,
-        })
-
-        answer = {"accepted": False}
-
-        def on_message(pid, msg):
-            mtype = msg.get("type")
-            consumed = self._handle_common(pid, msg)
-            if mtype == "__disconnect__":
-                return pid == target.id
-            if consumed:
-                return False
-            p = self.players.get(pid)
-            if p is None:
-                return False
-            if p.id != target.id or p.pending != "action":
+            def on_last_words(pid, msg):
+                mtype = msg.get("type")
+                consumed = self._handle_common(pid, msg)
+                if mtype == "__disconnect__":
+                    return pid == victim.id
+                if consumed:
+                    return False
+                other = self.players.get(pid)
+                if other is None:
+                    return False
                 text = str(msg.get("text", "")).strip()
-                self._broadcast_chat(p, text)
+                if other.id == victim.id:
+                    if text:
+                        self.broadcast_text(f"{victim.name} (last words): {text}", "magenta")
+                    return True
+                self._broadcast_chat(other, text)
                 return False
-            text = str(msg.get("text", "")).strip().lower()
-            p.pending = None
-            answer["accepted"] = text in ("1", "accept", "yes", "join")
-            return True
 
-        self._pump(time.time() + self.CONVERT_OFFER_TIME, on_message)
-        if target.pending == "action":
-            target.pending = None
-        return answer["accepted"]
+            self._pump(time.time() + 15, on_last_words)
+
+        self.broadcast_text(f"{victim.name} was a {victim.role}.", "red")
+
+    def _resolve_pending_infection(self):
+        """Applies whatever the Grad Student set in motion last night. It's
+        one-turn-delayed: the target doesn't actually die until this point,
+        one full night later."""
+        if self.pending_infection_id is not None:
+            victim = self.players.get(self.pending_infection_id)
+            self.pending_infection_id = None
+            if victim and victim.alive:
+                self._eliminate_with_last_words(victim, f"{victim.name} never woke up this morning...")
+                self._log(f"{victim.name}'s influence took hold overnight ({victim.role}).")
 
     def _pump(self, deadline, on_message):
         while True:
@@ -387,17 +382,6 @@ class GameServer:
                 continue
             if on_message(pid, msg):
                 return
-
-    def _plurality(self, values, tie_breaks_to_none=False):
-        values = [v for v in values if v is not None]
-        if not values:
-            return None
-        counts = Counter(values)
-        top = max(counts.values())
-        winners = [k for k, v in counts.items() if v == top]
-        if len(winners) > 1:
-            return None if tie_breaks_to_none else random.choice(winners)
-        return winners[0]
 
     def _alive_players(self):
         return [p for p in self.players.values() if p.connected and p.name and not p.spectator and p.alive]
@@ -450,14 +434,11 @@ class GameServer:
             p.role = role
             p.alive = True
 
-        mafia_names = [p.name for p in active if p.role == roles.ENGINEER]
         for p in active:
-            teammates = [n for n in mafia_names if n != p.name] if p.role == roles.ENGINEER else []
             self.send_to(p, {
                 "type": "role",
                 "role": p.role,
                 "description": roles.DESCRIPTIONS[p.role],
-                "teammates": teammates,
             })
         self.broadcast_text(f"\nRoles assigned. {len(active)} players in play. Let the game begin!", "bold")
         self._log("Role distribution: " + ", ".join(f"{p.name}={p.role}" for p in active))
@@ -467,40 +448,43 @@ class GameServer:
         self.broadcast_phase("night", self.round)
         self.broadcast_text(f"\n=== Night {self.round} ===", "blue")
 
+        self._resolve_pending_infection()
+        if self.check_win():
+            return
+
         alive = self._alive_players()
-        mafia = [p for p in alive if p.role == roles.ENGINEER]
-        doctor = next((p for p in alive if p.role == roles.DOCTOR), None)
-        detective = next((p for p in alive if p.role == roles.POLICE), None)
+        grad_student = next((p for p in alive if p.role == roles.GRAD_STUDENT), None)
+        mentor = next((p for p in alive if p.role == roles.MENTOR), None)
+        warden = next((p for p in alive if p.role == roles.WARDEN), None)
         professors = [p for p in alive if p.role == roles.PROFESSOR]
 
-        mafia_targets = [p for p in alive if p.role != roles.ENGINEER]
-        for m in mafia:
-            self._prompt(m, "infect", mafia_targets, "Choose a target to infect:", self.NIGHT_TIME)
-        if doctor:
-            self._prompt(doctor, "save", alive, "Choose a player to protect:", self.NIGHT_TIME)
+        if grad_student:
+            infect_targets = [p for p in alive if p.id != grad_student.id]
+            self._prompt(grad_student, "infect", infect_targets, "Choose a student to influence:", self.NIGHT_TIME)
+        if mentor:
+            self._prompt(mentor, "save", alive, "Choose a player to protect:", self.NIGHT_TIME)
+        if warden:
+            room_targets = [p for p in alive if p.id != warden.id]
+            self._prompt(warden, "inspect", room_targets, "Choose a player's room to check:", self.NIGHT_TIME)
         for prof in professors:
             self._prompt(prof, "steal", [p for p in alive if p.id != prof.id], "Choose a player to deduct points from:", self.NIGHT_TIME)
 
-        
-
-        if detective:
-            invest_targets = [p for p in alive if p.id != detective.id]
-            self._prompt(detective, "investigate", invest_targets, "Choose a player to investigate:", self.NIGHT_TIME)
-
-        actors = set(m.id for m in mafia)
-        if doctor:
-            actors.add(doctor.id)
-        if detective:
-            actors.add(detective.id)
+        actors = set()
+        if grad_student:
+            actors.add(grad_student.id)
+        if mentor:
+            actors.add(mentor.id)
+        if warden:
+            actors.add(warden.id)
+        for prof in professors:
+            actors.add(prof.id)
         for p in alive:
             if p.id not in actors:
                 self.send_text(p, "Night falls. Other roles are making their move... sit tight.", "dim")
-        for prof in professors:
-            actors.add(prof.id)
 
-
-        infect_votes = {}
-        save_target = {}
+        infect_target = {"id": None}
+        save_target = {"id": None}
+        inspect_target = {"id": None}
         pending_pids = set(actors)
 
         def on_message(pid, msg):
@@ -527,59 +511,61 @@ class GameServer:
                 self.send_text(p, "Invalid choice. Enter a number/name from the list, or 'skip'.", "red")
                 return len(pending_pids) == 0
 
-
-
-
             p.pending = None
             pending_pids.discard(pid)
             kind = p.pending_kind
-            if kind == "infect" and target:
-                infect_votes[pid] = target.id
+            if kind == "infect":
+                infect_target["id"] = target.id if target else None
             elif kind == "save":
                 save_target["id"] = target.id if target else None
-            elif kind == "investigate" and target:
-                is_engineer = target.role == roles.ENGINEER
-                self.send_text(
-                    p,
-                    f"{target.name} is {'an Engineer!' if is_engineer else 'not an Engineer.'}",
-                    "red" if is_engineer else "cyan",
-                )
+            elif kind == "inspect":
+                inspect_target["id"] = target.id if target else None
             elif kind == "steal" and target:
-                target.score-=1; p.score+=1
+                target.score -= 1
+                p.score += 1
             return len(pending_pids) == 0
-        
 
         self._pump(time.time() + self.NIGHT_TIME, on_message)
         for p in list(self.players.values()):
             if p.pending == "action":
                 p.pending = None
 
-        infect_target_id = self._plurality(list(infect_votes.values()))
-        saved_id = save_target.get("id")
-        victim = self.players.get(infect_target_id) if infect_target_id else None
+        infect_id = infect_target["id"]
+        saved_id = save_target["id"]
+        if infect_id and infect_id != saved_id:
+            # Delayed and silent: the target isn't told, and doesn't die
+            # until _resolve_pending_infection() runs at the top of next night.
+            self.pending_infection_id = infect_id
 
-        if victim and victim.id != saved_id and victim.role != roles.ENGINEER:
-            if self._offer_conversion(victim, mafia):
-                victim.role = roles.ENGINEER
-                victim.score += self.CONVERT_ACCEPT_BONUS
-                self.send_to(victim, {
-                    "type": "role", "role": roles.ENGINEER,
-                    "description": roles.DESCRIPTIONS[roles.ENGINEER],
-                    "teammates": [p.name for p in mafia],
-                })
-                self.send_text(victim, f"You gain {self.CONVERT_ACCEPT_BONUS} points for joining the Engineers.", "green")
-                for e in mafia:
-                    self.send_text(e, f"{victim.name} accepted and is now an Engineer!", "red")
+        inspect_id = inspect_target["id"]
+        if inspect_id and warden:
+            inspected = self.players.get(inspect_id)
+            # The Grad Student's room is only ever "empty" if they actually
+            # went out tonight (submitted a target) - whether or not the
+            # Mentor ended up blocking that attempt doesn't matter here.
+            caught = grad_student is not None and infect_id is not None and inspect_id == grad_student.id
+            if caught:
+                self.send_text(warden, f"{inspected.name}'s room is empty - suspicious!", "red")
+                # Revealed publicly next morning, feeding the normal day
+                # vote - not an automatic removal like the old jail/expel.
+                self.pending_suspicion_id = inspect_id
             else:
-                victim.score -= self.CONVERT_REFUSE_PENALTY
-                self.send_text(victim, f"You lose {self.CONVERT_REFUSE_PENALTY} point(s) for refusing the Engineers' offer.", "yellow")
-                for e in mafia:
-                    self.send_text(e, f"{victim.name} refused to join your team.", "yellow")
+                self.send_text(warden, f"{inspected.name}'s room is occupied - nothing unusual.", "cyan")
 
         self._log(f"Night {self.round} complete.")
 
     def day_phase(self):
         self.broadcast_text(f"\n=== Day {self.round} ===", "yellow")
+
+        if self.pending_suspicion_id is not None:
+            suspect = self.players.get(self.pending_suspicion_id)
+            self.pending_suspicion_id = None
+            if suspect and suspect.alive:
+                self.broadcast_text(
+                    f"[WARDEN'S REPORT] {suspect.name}'s room was found empty during last "
+                    "night's room check - suspicious! Vote wisely.",
+                    "magenta",
+                )
 
         if self.check_win():
             return
@@ -679,10 +665,9 @@ class GameServer:
             eliminated_id = leaders[0]
             self._no_elim_streak = 0
         elif self._no_elim_streak >= 1:
-            # Nothing kills at night anymore (Police investigates instead of
-            # jailing), so the day vote is the only way the game can end -
-            # after a second straight tied/empty day, force a resolution
-            # rather than let the game stall forever.
+            # The day vote can still stall out entirely (ties, all-skip),
+            # so after a second straight tied/empty day, force a resolution
+            # rather than let the game hang on discussion alone.
             pool = leaders if leaders else [p.id for p in alive]
             eliminated_id = random.choice(pool)
             self._no_elim_streak = 0
@@ -701,43 +686,18 @@ class GameServer:
             self._log(f"Day {self.round}: vote target vanished (stale id).")
             return
 
-        victim.alive = False
-        self.broadcast_text(f"{victim.name} has been voted out!", "red")
-        if victim.connected:
-            self.send_text(victim, "You have been eliminated. You have 15 seconds for last words, seen by everyone:", "yellow")
-
-            def on_last_words(pid, msg):
-                mtype = msg.get("type")
-                consumed = self._handle_common(pid, msg)
-                if mtype == "__disconnect__":
-                    return pid == victim.id
-                if consumed:
-                    return False
-                other = self.players.get(pid)
-                if other is None:
-                    return False
-                text = str(msg.get("text", "")).strip()
-                if other.id == victim.id:
-                    if text:
-                        self.broadcast_text(f"{victim.name} (last words): {text}", "magenta")
-                    return True
-                self._broadcast_chat(other, text)
-                return False
-
-            self._pump(time.time() + 15, on_last_words)
-
-        self.broadcast_text(f"{victim.name} was a {victim.role}.", "red")
+        self._eliminate_with_last_words(victim, f"{victim.name} has been voted out!")
         self._log(f"Day {self.round}: {victim.name} eliminated ({victim.role}).")
 
     def check_win(self):
         alive = self._alive_players()
-        mafia_alive = [p for p in alive if p.role == roles.ENGINEER]
-        good_alive = [p for p in alive if p.role != roles.ENGINEER]
-        if not mafia_alive:
-            self._end_game("village")
+        grad_alive = [p for p in alive if p.role == roles.GRAD_STUDENT]
+        good_alive = [p for p in alive if p.role != roles.GRAD_STUDENT]
+        if not grad_alive:
+            self._end_game("students")
             return True
-        if len(mafia_alive) >= len(good_alive):
-            self._end_game("mafia")
+        if len(grad_alive) >= len(good_alive):
+            self._end_game("grad_student")
             return True
         return False
 
