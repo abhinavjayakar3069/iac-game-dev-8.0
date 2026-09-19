@@ -185,10 +185,36 @@ class GameServer:
             if not text:
                 self.send_text(p, "Name cannot be empty. Enter your name:", "red")
                 return True
+            text = text[:20]
+
+            # Reconnection: someone who was mid-game and dropped can rejoin
+            # under the same name and resume their seat (role, alive state).
+            reconnect_target = next(
+                (pl for pl in self.players.values()
+                 if pl.id != pid and not pl.connected and pl.role is not None
+                 and pl.name and pl.name.lower() == text.lower()),
+                None,
+            )
+            if reconnect_target:
+                old_id = reconnect_target.id
+                p.name = reconnect_target.name
+                p.role = reconnect_target.role
+                p.alive = reconnect_target.alive
+                p.spectator = False
+                p.pending = None
+                del self.players[old_id]
+                self.send_text(p, f"Welcome back, {p.name}! You reconnected as {p.role}.", "green")
+                self.send_text(p, roles.DESCRIPTIONS[p.role], "magenta")
+                if not p.alive:
+                    self.send_text(p, "You were eliminated before you dropped - you're watching as a spectator.", "yellow")
+                self.broadcast_text(f"{p.name} has reconnected.", "green", exclude=pid)
+                self._log(f"{p.name} reconnected.")
+                return True
+
             if any(pl.name == text for pl in self.players.values() if pl.id != pid and pl.name):
                 self.send_text(p, "That name is taken. Enter a different name:", "red")
                 return True
-            p.name = text[:20]
+            p.name = text
             p.pending = None
             self._log(f"{p.name} joined." + (" (spectator)" if p.spectator else ""))
             if p.spectator:
@@ -429,15 +455,38 @@ class GameServer:
         if self.check_win():
             return
 
-        self.broadcast_text(f"Discussion phase ({self.DAY_DISCUSS_TIME}s). Type to chat with everyone.", "cyan")
+        self.broadcast_text(
+            f"Discussion phase ({self.DAY_DISCUSS_TIME}s). Chat freely, or type "
+            "'accuse <name>' to publicly flag a suspect on the suspicion board.",
+            "cyan",
+        )
+
+        disc_alive_by_name = {p.name.lower(): p for p in self._alive_players()}
+        accusations = {}  # accuser_id -> target_id, latest one counts
 
         def on_discuss(pid, msg):
             consumed = self._handle_common(pid, msg)
             if consumed:
                 return False
             p = self.players.get(pid)
-            if p:
-                self._broadcast_chat(p, str(msg.get("text", "")).strip())
+            if p is None:
+                return False
+            text = str(msg.get("text", "")).strip()
+            lowered = text.lower()
+            if p.alive and not p.spectator and (lowered.startswith("accuse ") or lowered.startswith("!accuse ")):
+                target_name = text.split(" ", 1)[1].strip() if " " in text else ""
+                target = disc_alive_by_name.get(target_name.lower())
+                if target is None or target.id == p.id:
+                    self.send_text(p, "Usage: accuse <living player's name> (not yourself).", "red")
+                else:
+                    accusations[p.id] = target.id
+                    tally = Counter(accusations.values())
+                    board = ", ".join(
+                        f"{self.players[t].name}({c})" for t, c in tally.most_common() if t in self.players
+                    )
+                    self.broadcast_text(f"\U0001F4E2 {p.name} publicly accuses {target.name}! Suspicion board: {board}", "magenta")
+            else:
+                self._broadcast_chat(p, text)
             return False
 
         self._pump(time.time() + self.DAY_DISCUSS_TIME, on_discuss)
@@ -491,11 +540,43 @@ class GameServer:
         if eliminated_id is None:
             self.broadcast_text("The vote is tied or inconclusive. No one is eliminated.", "yellow")
             self._log(f"Day {self.round}: no elimination (tie/no votes).")
-        else:
-            victim = self.players.get(eliminated_id)
-            victim.alive = False
-            self.broadcast_text(f"{victim.name} has been voted out. They were a {victim.role}.", "red")
-            self._log(f"Day {self.round}: {victim.name} eliminated ({victim.role}).")
+            return
+
+        victim = self.players.get(eliminated_id)
+        if victim is None:
+            # Target reconnected under a new id mid-phase and the old id was
+            # retired; treat as if the vote fizzled rather than crash.
+            self.broadcast_text("The accused is no longer in the game. No one is eliminated.", "yellow")
+            self._log(f"Day {self.round}: vote target vanished (stale id).")
+            return
+
+        victim.alive = False
+        self.broadcast_text(f"{victim.name} has been voted out!", "red")
+        if victim.connected:
+            self.send_text(victim, "You have been eliminated. You have 15 seconds for last words, seen by everyone:", "yellow")
+
+            def on_last_words(pid, msg):
+                mtype = msg.get("type")
+                consumed = self._handle_common(pid, msg)
+                if mtype == "__disconnect__":
+                    return pid == victim.id
+                if consumed:
+                    return False
+                other = self.players.get(pid)
+                if other is None:
+                    return False
+                text = str(msg.get("text", "")).strip()
+                if other.id == victim.id:
+                    if text:
+                        self.broadcast_text(f"{victim.name} (last words): {text}", "magenta")
+                    return True
+                self._broadcast_chat(other, text)
+                return False
+
+            self._pump(time.time() + 15, on_last_words)
+
+        self.broadcast_text(f"{victim.name} was a {victim.role}.", "red")
+        self._log(f"Day {self.round}: {victim.name} eliminated ({victim.role}).")
 
     def check_win(self):
         alive = self._alive_players()

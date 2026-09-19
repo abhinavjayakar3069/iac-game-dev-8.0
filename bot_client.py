@@ -31,7 +31,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((host, port))
     reader = protocol.LineReader()
-    state = {"name_sent": False}
+    state = {"name_sent": False, "known_names": set()}
 
     def send(obj):
         try:
@@ -41,7 +41,22 @@ def main():
 
     def handle(msg):
         mtype = msg.get("type")
-        if mtype == "text":
+
+        if mtype == "lobby":
+            state["known_names"].update(msg.get("players", []))
+            # If a bot happens to be host (e.g. solo testing with all bots),
+            # nudge the lobby along once enough players have joined. This is
+            # a harmless no-op ('start' is just chat) when the bot isn't host.
+            if len(msg.get("players", [])) >= msg.get("min_players", 4):
+                time.sleep(random.uniform(1.5, 3.0))
+                send({"type": "input", "text": "start"})
+
+        elif mtype == "chat":
+            sender = msg.get("from", "").replace("[spectator] ", "")
+            if sender:
+                state["known_names"].add(sender)
+
+        elif mtype == "text":
             text = msg.get("text", "")
             if not state["name_sent"] and "name" in text.lower():
                 time.sleep(random.uniform(0.2, 0.8))
@@ -49,14 +64,15 @@ def main():
                 state["name_sent"] = True
             elif "Discussion phase" in text:
                 time.sleep(random.uniform(2.0, 6.0))
-                send({"type": "input", "text": random.choice(CHAT_LINES)})
-        elif mtype == "lobby":
-            # If a bot happens to be host (e.g. solo testing with all bots),
-            # nudge the lobby along once enough players have joined. This is
-            # a harmless no-op ('start' is just chat) when the bot isn't host.
-            if len(msg.get("players", [])) >= msg.get("min_players", 4):
-                time.sleep(random.uniform(1.5, 3.0))
-                send({"type": "input", "text": "start"})
+                others = [n for n in state["known_names"] if n != name]
+                if others and random.random() < 0.4:
+                    send({"type": "input", "text": f"accuse {random.choice(others)}"})
+                else:
+                    send({"type": "input", "text": random.choice(CHAT_LINES)})
+            elif "last words" in text.lower() and text.startswith("You have been eliminated"):
+                time.sleep(random.uniform(0.5, 2.0))
+                send({"type": "input", "text": random.choice(["It wasn't me!", "You'll regret this.", "Good luck, village."])})
+
         elif mtype == "prompt":
             options = msg.get("options", [])
             time.sleep(random.uniform(1.0, 3.0))
