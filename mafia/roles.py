@@ -1,27 +1,24 @@
 """Role definitions and distribution logic."""
 
-MAFIA = "Mafia"
+ENGINEER = "Engineer"
 DOCTOR = "Doctor"
-DETECTIVE = "Detective"
-VILLAGER = "Villager"
+POLICE = "Police"
+PROFESSOR = "Professor"
+
 
 DESCRIPTIONS = {
-    MAFIA: (
-        "You are the Mafia. Each night, coordinate with your fellow Mafia "
-        "to choose one player to eliminate. You win when the Mafia equal "
-        "or outnumber the rest of the village."
+    ENGINEER: (
+        "You are the Engineer. Each night, you can convert another player into an Engineer."
     ),
     DOCTOR: (
         "You are the Doctor. Each night, choose one player to protect from "
-        "the Mafia's attack. You may protect yourself."
+        "the Engineer's attack. You may protect yourself."
     ),
-    DETECTIVE: (
-        "You are the Detective. Each night, investigate one player to learn "
-        "whether they are Mafia."
+    POLICE: (
+        "You are the Police. Each night, you can send one player to the jail thus eliminating them from the game. You may not send yourself to jail."
     ),
-    VILLAGER: (
-        "You are a Villager. You have no special power. Use the day's "
-        "discussion and your vote to find and eliminate the Mafia."
+    PROFESSOR: (
+        "You are the Professor. Each night, you can deduct points from another player because and append them to your score. You may not deduct points from yourself." 
     ),
 }
 
@@ -30,13 +27,13 @@ def compute_roles(n):
     """Return (mafia, doctor, detective, villager) counts for n players."""
     if n < 4:
         raise ValueError("Need at least 4 players")
-    mafia = max(1, n // 4)
+    engineer = max(1, n // 4)
     doctor = 1
-    detective = 1 if n >= 5 else 0
-    villager = n - mafia - doctor - detective
-    return mafia, doctor, detective, villager
+    police = 1 if n >= 5 else 0
+    professor = n - engineer - doctor - police
+    return engineer, doctor, police, professor
 
 
 def build_role_pool(n):
-    mafia, doctor, detective, villager = compute_roles(n)
-    return [MAFIA] * mafia + [DOCTOR] * doctor + [DETECTIVE] * detective + [VILLAGER] * villager
+    engineer, doctor, police, professor = compute_roles(n)
+    return [ENGINEER] * engineer + [DOCTOR] * doctor + [POLICE] * police + [PROFESSOR] * professor

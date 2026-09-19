@@ -350,9 +350,9 @@ class GameServer:
             p.role = role
             p.alive = True
 
-        mafia_names = [p.name for p in active if p.role == roles.MAFIA]
+        mafia_names = [p.name for p in active if p.role == roles.ENGINEER]
         for p in active:
-            teammates = [n for n in mafia_names if n != p.name] if p.role == roles.MAFIA else []
+            teammates = [n for n in mafia_names if n != p.name] if p.role == roles.ENGINEER else []
             self.send_to(p, {
                 "type": "role",
                 "role": p.role,
@@ -368,11 +368,11 @@ class GameServer:
         self.broadcast_text(f"\n=== Night {self.round} ===", "blue")
 
         alive = self._alive_players()
-        mafia = [p for p in alive if p.role == roles.MAFIA]
+        mafia = [p for p in alive if p.role == roles.ENGINEER]
         doctor = next((p for p in alive if p.role == roles.DOCTOR), None)
-        detective = next((p for p in alive if p.role == roles.DETECTIVE), None)
+        detective = next((p for p in alive if p.role == roles.POLICE), None)
 
-        mafia_targets = [p for p in alive if p.role != roles.MAFIA]
+        mafia_targets = [p for p in alive if p.role != roles.ENGINEER]
         for m in mafia:
             self._prompt(m, "kill", mafia_targets, "Choose a target to eliminate:", self.NIGHT_TIME)
         if doctor:
@@ -426,7 +426,7 @@ class GameServer:
             elif kind == "save":
                 save_target["id"] = target.id if target else None
             elif kind == "investigate" and target:
-                is_mafia = target.role == roles.MAFIA
+                is_mafia = target.role == roles.ENGINEER
                 self.send_to(p, {"type": "investigate_result", "target": target.name, "is_mafia": is_mafia})
             return len(pending_pids) == 0
 
@@ -590,8 +590,8 @@ class GameServer:
 
     def check_win(self):
         alive = self._alive_players()
-        mafia_alive = [p for p in alive if p.role == roles.MAFIA]
-        good_alive = [p for p in alive if p.role != roles.MAFIA]
+        mafia_alive = [p for p in alive if p.role == roles.ENGINEER]
+        good_alive = [p for p in alive if p.role != roles.ENGINEER]
         if not mafia_alive:
             self._end_game("village")
             return True
