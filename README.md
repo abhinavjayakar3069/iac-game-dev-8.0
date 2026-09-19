@@ -1,7 +1,12 @@
-# Terminal Mafia
+# Terminal Mafia — Ghost Protocol
 
 A local-hosted, multiplayer, terminal-based social deduction game (Mafia / Among Us
 style) built for **ROOT 36 — IAC 8.0, IIT Palakkad**.
+
+"Ghost Protocol" is a hacker/heist presentation skin on top of the standard Mafia
+mechanic: an infiltrator is hiding among a crew of operatives. The wire protocol
+and game rules are untouched — only the terminal client's banners, role flavor
+text, and phase names are themed.
 
 One player hosts a game server on their machine; everyone else connects from their
 own terminal — either other windows on the same machine, or other devices on the
@@ -10,10 +15,30 @@ text.
 
 ## Requirements
 
-- Python 3.9+ (standard library only — **no `pip install` needed** to play)
+- Python 3.9+ (standard library only — **no `pip install` needed** to play), **or**
+  the prebuilt Windows executables in [`dist/`](dist/) if you don't have Python
 - All players on the same local network (or the same machine, for a solo test)
 
-## Quick start
+## Quick start (prebuilt executables)
+
+No Python required. From `dist/`:
+
+```bash
+dist\terminal-mafia-server.exe --port 5050
+```
+
+Everyone else:
+
+```bash
+dist\terminal-mafia-client.exe <host-ip> 5050
+```
+
+(`terminal-mafia-bot.exe` is the AI bot, used automatically by `--bots N`.)
+Rebuild them yourself anytime with `pip install pyinstaller` and
+`python -m PyInstaller --onefile server.py` (same for `client.py` /
+`bot_client.py`) — they're just packaged copies of the scripts below.
+
+## Quick start (from source)
 
 **1. Host starts the server** (pick any free port, e.g. 5050):
 
@@ -58,29 +83,40 @@ python server.py [--port 5050] [--host 0.0.0.0] [--min-players 4] [--bots 0]
 ## How to play
 
 Each night, players with special roles secretly submit an action. Each day, the
-village discusses in an open chat, then votes to eliminate a suspect.
+crew discusses in an open chat, then votes to eliminate a suspect.
 
-| Role | Team | Ability |
-|---|---|---|
-| **Mafia** | Mafia | Each night, the Mafia (who know each other) jointly choose one player to eliminate. |
-| **Doctor** | Village | Each night, protect one player (including themselves) from the Mafia's kill. |
-| **Detective** | Village | Each night, investigate one player and privately learn if they're Mafia. |
-| **Villager** | Village | No special power — just a vote and your ability to read the room. |
+| Role | In-fiction | Team | Ability |
+|---|---|---|---|
+| **Mafia** | Infiltrator | Mafia | Each night, the Mafia (who know each other) jointly choose one player to eliminate. |
+| **Doctor** | Firewall Specialist | Village | Each night, protect one player (including themselves) from the Mafia's kill. |
+| **Detective** | White-hat | Village | Each night, investigate one player and privately learn if they're Mafia. |
+| **Villager** | Crew Member | Village | No special power — just a vote and your ability to read the room. |
 
 Role counts scale with the number of players (roughly 1 Mafia per 4 players, 1
 Doctor always, 1 Detective from 5 players up). Every player only ever sees
 information their own role is entitled to — hidden state lives entirely on the
 server and is never sent to clients that shouldn't see it.
 
+**Discussion isn't just a timer.** During the day, type `accuse <name>` to publicly
+flag a suspect — it updates a live suspicion tally broadcast to the whole table,
+on top of free-form chat.
+
+**Last words.** A player voted out during the day gets a short window to speak
+before their identity is revealed to everyone.
+
 **Win conditions**
 
-- **Village wins** the moment every Mafia member has been eliminated.
-- **Mafia wins** the moment Mafia count is greater than or equal to the remaining
-  village count.
+- **The Crew wins** the moment every Mafia/infiltrator has been eliminated.
+- **The Mafia wins** the moment Mafia count is greater than or equal to the
+  remaining crew count.
 
 Eliminated players (by night kill or day vote) become **spectators**: they keep
 receiving the live game feed, but their chat is only visible to other
 spectators/eliminated players, never to the living.
+
+**Reconnecting.** If you drop mid-game, reconnect with `python client.py <host> <port>`
+and enter the *exact same name* you had before — you'll resume your seat, role,
+and alive/dead status instead of being locked out.
 
 ## Architecture
 

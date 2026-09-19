@@ -8,12 +8,27 @@ run `python client.py <host-ip> <port>` from their own terminals (on the
 same machine, or anywhere on the same local network / hotspot).
 """
 import argparse
+import os
 import subprocess
 import sys
 import threading
 import time
 
 from mafia.game import GameServer
+
+
+def _bot_command():
+    """Build the subprocess command for a bot client, working both when
+    running from source and when frozen into a standalone .exe (where
+    sys.executable is this program itself, not a Python interpreter)."""
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        for candidate in ("terminal-mafia-bot.exe", "bot_client.exe"):
+            path = os.path.join(exe_dir, candidate)
+            if os.path.isfile(path):
+                return [path]
+        return None
+    return [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_client.py")]
 
 
 def main():
@@ -28,12 +43,16 @@ def main():
     server = GameServer(host=args.host, port=args.port, min_players=args.min_players)
 
     if args.bots > 0:
-        def spawn_bots():
-            time.sleep(1.0)
-            for _ in range(args.bots):
-                subprocess.Popen([sys.executable, "bot_client.py", "127.0.0.1", str(args.port)])
-                time.sleep(0.2)
-        threading.Thread(target=spawn_bots, daemon=True).start()
+        bot_cmd = _bot_command()
+        if bot_cmd is None:
+            print("[server] --bots requested, but no bot_client.py/terminal-mafia-bot.exe found next to this program.")
+        else:
+            def spawn_bots():
+                time.sleep(1.0)
+                for _ in range(args.bots):
+                    subprocess.Popen(bot_cmd + ["127.0.0.1", str(args.port)])
+                    time.sleep(0.2)
+            threading.Thread(target=spawn_bots, daemon=True).start()
 
     print(f"Terminal Mafia server starting on {args.host}:{args.port}")
     print("Share your local IP address and this port with other players on the same network.")

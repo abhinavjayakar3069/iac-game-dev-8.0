@@ -130,6 +130,13 @@ class GameServer:
             if p.connected and p.id != exclude:
                 self.send_text(p, text, color)
 
+    def broadcast_phase(self, phase, round_no=None):
+        """Pure UI signal: lets clients render a themed banner for this
+        phase. Carries no game logic of its own - safe to ignore."""
+        for p in self.players.values():
+            if p.connected:
+                self.send_to(p, {"type": "phase", "phase": phase, "round": round_no})
+
     def _log(self, text):
         self.log.append(f"[{time.strftime('%H:%M:%S')}] {text}")
         print(f"[server] {text}")
@@ -357,6 +364,7 @@ class GameServer:
 
     def night_phase(self):
         self.round += 1
+        self.broadcast_phase("night", self.round)
         self.broadcast_text(f"\n=== Night {self.round} ===", "blue")
 
         alive = self._alive_players()
@@ -455,6 +463,7 @@ class GameServer:
         if self.check_win():
             return
 
+        self.broadcast_phase("day_discuss", self.round)
         self.broadcast_text(
             f"Discussion phase ({self.DAY_DISCUSS_TIME}s). Chat freely, or type "
             "'accuse <name>' to publicly flag a suspect on the suspicion board.",
@@ -495,6 +504,7 @@ class GameServer:
         if len(alive) <= 1 or self.check_win():
             return
 
+        self.broadcast_phase("vote", self.round)
         self.broadcast_text(f"Voting phase ({self.DAY_VOTE_TIME}s). Choose who to eliminate.", "magenta")
         for p in alive:
             self._prompt(p, "vote", alive, "Vote to eliminate a player (or 'skip' to abstain):", self.DAY_VOTE_TIME)
@@ -591,6 +601,7 @@ class GameServer:
         return False
 
     def _end_game(self, winner):
+        self.broadcast_phase("game_over")
         role_list = {p.name: p.role for p in self.players.values() if p.name and not p.spectator}
         headline = "The Village wins!" if winner == "village" else "The Mafia wins!"
         self.broadcast_text(f"\n=== GAME OVER === {headline}", "bold")
