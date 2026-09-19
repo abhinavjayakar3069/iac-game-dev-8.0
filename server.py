@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 
+from mafia import discovery
 from mafia.game import GameServer
 
 try:
@@ -46,6 +47,8 @@ def main():
     args = parser.parse_args()
 
     server = GameServer(host=args.host, port=args.port, min_players=args.min_players)
+
+    threading.Thread(target=discovery.respond_forever, args=(args.port,), daemon=True).start()
 
     if args.bots > 0:
         bot_cmd = _bot_command()

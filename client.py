@@ -12,7 +12,7 @@ import socket
 import sys
 import threading
 
-from mafia import protocol
+from mafia import discovery, protocol
 from mafia.colors import colorize
 
 # Legacy Windows consoles (default cmd.exe codepages) can't encode every
@@ -134,16 +134,25 @@ def main():
         port = int(sys.argv[2])
     else:
         # No <host> <port> passed on the command line - this happens when the
-        # .exe is launched by double-clicking it rather than from a terminal,
-        # so prompt for them instead of exiting immediately.
-        host = input("Server IP address (blank for 127.0.0.1): ").strip() or "127.0.0.1"
-        while True:
-            port_text = input("Port (blank for 5050): ").strip() or "5050"
-            try:
-                port = int(port_text)
-                break
-            except ValueError:
-                print("Enter a number for the port.")
+        # .exe is launched by double-clicking it rather than from a terminal.
+        # Try to find a server automatically (works on most LANs/hotspots;
+        # some phone hotspots block broadcast traffic between devices), and
+        # fall back to asking for it manually if nothing answers.
+        print(colorize("Looking for a server on this network...", "dim"))
+        found = discovery.find_server()
+        if found:
+            host, port = found
+            print(colorize(f"Found server at {host}:{port}.", "green"))
+        else:
+            print(colorize("No server found automatically - enter it manually.", "yellow"))
+            host = input("Server IP address (blank for 127.0.0.1): ").strip() or "127.0.0.1"
+            while True:
+                port_text = input("Port (blank for 5050): ").strip() or "5050"
+                try:
+                    port = int(port_text)
+                    break
+                except ValueError:
+                    print("Enter a number for the port.")
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

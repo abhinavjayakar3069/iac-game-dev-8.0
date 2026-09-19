@@ -35,8 +35,9 @@ dist\terminal-mafia-client.exe <host-ip> 5050
 
 Both also work by double-clicking the `.exe` directly (no terminal needed) -
 `terminal-mafia-server.exe` starts on the default port 5050, and
-`terminal-mafia-client.exe` will prompt you for the host IP and port instead
-of requiring them as arguments.
+`terminal-mafia-client.exe` will try to find the server automatically on
+the local network/hotspot, falling back to asking for the host IP and port
+if nothing answers (some phone hotspots block this kind of discovery).
 
 (`terminal-mafia-bot.exe` is the AI bot, used automatically by `--bots N`.)
 Rebuild them yourself anytime with `pip install pyinstaller` and
@@ -136,6 +137,7 @@ client.py         Terminal UI for a human player: renders server messages, relay
 bot_client.py      Same wire protocol as client.py, but auto-plays for testing/demos
 mafia/
   protocol.py     Newline-delimited JSON message framing shared by server & clients
+  discovery.py    UDP broadcast/reply so the client can auto-find a server on the LAN
   roles.py        Pure role definitions + role-count distribution (no I/O, unit-testable)
   game.py         GameServer: connection handling + the night/day phase state machine
   colors.py       Dependency-free ANSI color helpers for the terminal UI
