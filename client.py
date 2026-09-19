@@ -4,7 +4,6 @@ Usage: python client.py <host> <port>
 (or just python client.py / double-click the .exe - it will prompt for
 the server address and port interactively)
 """
-import os
 import socket
 import sys
 import threading
@@ -95,7 +94,7 @@ def handle_message(msg):
             print(f"  {name}: {role} (score: {scores.get(name, 0)})")
 
 
-def receiver(sock):
+def receiver(sock, disconnected):
     reader = protocol.LineReader()
     try:
         while True:
@@ -106,8 +105,13 @@ def receiver(sock):
                 handle_message(msg)
     except OSError:
         pass
+    # Don't force-exit here: the main thread is likely still sitting in
+    # input() so the player can read the final game-over screen (roles,
+    # scores) for as long as they want - it only unblocks once they
+    # actually press Enter, checked against this flag rather than a
+    # failed send (which can race the server's own close timing).
+    disconnected.set()
     print("\n" + colorize("Disconnected from server. Press Enter to exit.", "yellow"))
-    os._exit(0)
 
 
 def main():
@@ -147,12 +151,18 @@ def main():
         return
     print(colorize(f"Connected to {host}:{port}.", "green"))
 
-    threading.Thread(target=receiver, args=(sock,), daemon=True).start()
+    disconnected = threading.Event()
+    threading.Thread(target=receiver, args=(sock, disconnected), daemon=True).start()
 
     try:
         while True:
             line = input()
-            sock.sendall(protocol.encode({"type": "input", "text": line}))
+            if disconnected.is_set():
+                break
+            try:
+                sock.sendall(protocol.encode({"type": "input", "text": line}))
+            except OSError:
+                break
     except (EOFError, KeyboardInterrupt):
         pass
     finally:

@@ -127,8 +127,8 @@ flag a suspect — it updates a live suspicion tally broadcast to the whole tabl
 on top of free-form chat.
 
 **Last words.** A player eliminated (by day vote, or once a delayed influence
-resolves) gets a short window to speak before their identity is revealed to
-everyone.
+resolves) gets a short window to speak. Their role stays hidden - all roles
+are revealed together only on the final game-over screen.
 
 **Win conditions**
 

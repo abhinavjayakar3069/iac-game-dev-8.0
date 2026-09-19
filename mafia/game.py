@@ -56,6 +56,7 @@ class GameServer:
     NIGHT_TIME = 35
     DAY_DISCUSS_TIME = 45
     DAY_VOTE_TIME = 30
+    LAST_WORDS_TIME = 15
     MAX_BOTS_PER_REQUEST = 20
 
     def __init__(self, host="0.0.0.0", port=5050, min_players=4):
@@ -99,6 +100,16 @@ class GameServer:
         finally:
             time.sleep(2)
             for p in list(self.players.values()):
+                # shutdown() first: each connection also has a
+                # _client_reader thread blocked in recv() on this same
+                # socket, and close() alone doesn't reliably unblock that
+                # and send the client a FIN - the client can be left
+                # thinking it's still connected indefinitely. shutdown()
+                # forces that immediately, close() then releases the fd.
+                try:
+                    p.conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
                 try:
                     p.conn.close()
                 except OSError:
@@ -330,13 +341,14 @@ class GameServer:
         self.send_to(p, {"type": "prompt", "kind": kind, "options": opts, "text": text, "time_limit": time_limit})
 
     def _eliminate_with_last_words(self, victim, announce_text):
-        """Kill victim, give them a short public last-words window if
-        they're still connected, then reveal their role. Shared by the day
-        vote and the delayed infection resolution."""
+        """Kill victim and give them a short public last-words window if
+        they're still connected. Their role stays hidden - it's only
+        revealed for everyone at once on the final game-over screen.
+        Shared by the day vote and the delayed infection resolution."""
         victim.alive = False
         self.broadcast_text(announce_text, "red")
         if victim.connected:
-            self.send_text(victim, "You have been eliminated. You have 15 seconds for last words, seen by everyone:", "yellow")
+            self.send_text(victim, f"You have been eliminated. You have {self.LAST_WORDS_TIME} seconds for last words, seen by everyone:", "yellow")
 
             def on_last_words(pid, msg):
                 mtype = msg.get("type")
@@ -356,9 +368,7 @@ class GameServer:
                 self._broadcast_chat(other, text)
                 return False
 
-            self._pump(time.time() + 15, on_last_words)
-
-        self.broadcast_text(f"{victim.name} was a {victim.role}.", "red")
+            self._pump(time.time() + self.LAST_WORDS_TIME, on_last_words)
 
     def _resolve_pending_infection(self):
         """Applies whatever the Grad Student set in motion last night. It's
