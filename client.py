@@ -4,6 +4,8 @@ A hacker/heist presentation skin over the standard Mafia mechanic: the
 wire protocol and roles are unchanged, only how they're displayed here.
 
 Usage: python client.py <host> <port>
+(or just python client.py / double-click the .exe - it will prompt for
+the server address and port interactively)
 """
 import os
 import socket
@@ -125,15 +127,31 @@ def receiver(sock):
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python client.py <host> <port>")
-        sys.exit(1)
-    host = sys.argv[1]
-    port = int(sys.argv[2])
-
     print(colorize(ASCII_BANNER, "cyan"))
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((host, port))
+
+    if len(sys.argv) >= 3:
+        host = sys.argv[1]
+        port = int(sys.argv[2])
+    else:
+        # No <host> <port> passed on the command line - this happens when the
+        # .exe is launched by double-clicking it rather than from a terminal,
+        # so prompt for them instead of exiting immediately.
+        host = input("Server IP address (blank for 127.0.0.1): ").strip() or "127.0.0.1"
+        while True:
+            port_text = input("Port (blank for 5050): ").strip() or "5050"
+            try:
+                port = int(port_text)
+                break
+            except ValueError:
+                print("Enter a number for the port.")
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, port))
+    except OSError as e:
+        print(colorize(f"Could not connect to {host}:{port} ({e}).", "red"))
+        input("Press Enter to exit.")
+        return
     print(colorize(f"Connected to {host}:{port}.", "green"))
 
     threading.Thread(target=receiver, args=(sock,), daemon=True).start()
