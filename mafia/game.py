@@ -493,7 +493,7 @@ class GameServer:
                     board = ", ".join(
                         f"{self.players[t].name}({c})" for t, c in tally.most_common() if t in self.players
                     )
-                    self.broadcast_text(f"\U0001F4E2 {p.name} publicly accuses {target.name}! Suspicion board: {board}", "magenta")
+                    self.broadcast_text(f"[ALERT] {p.name} publicly accuses {target.name}! Suspicion board: {board}", "magenta")
             else:
                 self._broadcast_chat(p, text)
             return False

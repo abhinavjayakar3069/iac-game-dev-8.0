@@ -14,6 +14,14 @@ import time
 from mafia import protocol
 from mafia.colors import colorize
 
+# Legacy Windows consoles (default cmd.exe codepages) can't encode every
+# Unicode character; without this, a single odd character in any chat/
+# broadcast text would crash the client mid-game with UnicodeEncodeError.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
+
 ASCII_BANNER = r"""
    ___  __  __  ____  ___  ______  ____   ___  ______ ____   ____   ___   __
   / _ |/ / / / / __ \/ _ \/_  __/ / __ \ / _ \/_  __// __ \ / __/  / _ | / /

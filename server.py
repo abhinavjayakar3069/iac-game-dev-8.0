@@ -16,6 +16,11 @@ import time
 
 from mafia.game import GameServer
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
+
 
 def _bot_command():
     """Build the subprocess command for a bot client, working both when
