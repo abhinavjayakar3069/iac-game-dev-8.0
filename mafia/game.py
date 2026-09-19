@@ -10,11 +10,28 @@ import os
 import queue
 import random
 import socket
+import subprocess
+import sys
 import threading
 import time
 from collections import Counter
 
 from mafia import protocol, roles
+
+
+def _bot_command():
+    """Build the subprocess command for a bot client, working both when
+    running from source and when frozen into a standalone .exe (where
+    sys.executable is this program itself, not a Python interpreter)."""
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        for candidate in ("terminal-mafia-bot.exe", "bot_client.exe"):
+            path = os.path.join(exe_dir, candidate)
+            if os.path.isfile(path):
+                return [path]
+        return None
+    server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return [sys.executable, os.path.join(server_dir, "bot_client.py")]
 
 
 class Player:
@@ -41,6 +58,7 @@ class GameServer:
     DAY_VOTE_TIME = 30
     CONVERT_ACCEPT_BONUS = 2
     CONVERT_REFUSE_PENALTY = 1
+    MAX_BOTS_PER_REQUEST = 20
 
     def __init__(self, host="0.0.0.0", port=5050, min_players=4):
         self.host = host
@@ -89,6 +107,22 @@ class GameServer:
                 self._srv_sock.close()
             except OSError:
                 pass
+
+    def spawn_bots(self, n):
+        """Launch n bot_client processes that connect to this server on
+        localhost. Returns None on success, or an error string. Runs the
+        actual spawning on a background thread so the caller (the game
+        loop) never blocks on subprocess startup."""
+        bot_cmd = _bot_command()
+        if bot_cmd is None:
+            return "no bot_client.py/terminal-mafia-bot.exe found next to this program."
+
+        def _spawn():
+            for _ in range(n):
+                subprocess.Popen(bot_cmd + ["127.0.0.1", str(self.port)])
+                time.sleep(0.2)
+        threading.Thread(target=_spawn, daemon=True).start()
+        return None
 
     def _accept_loop(self):
         # This runs on its own thread, so it must never touch self.players
@@ -239,7 +273,7 @@ class GameServer:
                 if not self.game_started:
                     self._broadcast_lobby()
                     if p.is_host:
-                        self.send_text(p, f"You are the host. Type 'start' once at least {self.min_players} players have joined.", "cyan")
+                        self.send_text(p, f"You are the host. Type 'start' once at least {self.min_players} players have joined, or 'bots <N>' to fill the lobby with AI players.", "cyan")
             return True
 
         return False  # caller resolves: pending action, or free chat
@@ -249,7 +283,7 @@ class GameServer:
             if p.connected and p.name and not p.spectator:
                 p.is_host = True
                 self.host_id = p.id
-                self.send_text(p, "You are now the host. Type 'start' when ready.", "cyan")
+                self.send_text(p, "You are now the host. Type 'start' when ready, or 'bots <N>' to fill the lobby with AI players.", "cyan")
                 return
         self.host_id = None
 
@@ -384,7 +418,8 @@ class GameServer:
             if p is None or p.spectator:
                 continue
             text = str(msg.get("text", "")).strip()
-            if p.is_host and text.lower() == "start":
+            lowered = text.lower()
+            if p.is_host and lowered == "start":
                 active = self._all_named_active()
                 if len(active) < self.min_players:
                     self.send_text(p, f"Need at least {self.min_players} players to start (currently {len(active)}).", "red")
@@ -392,6 +427,18 @@ class GameServer:
                     self.game_started = True
                     self._log(f"Game started with {len(active)} players: " + ", ".join(x.name for x in active))
                     return
+            elif p.is_host and (lowered == "bots" or lowered.startswith("bots ")):
+                arg = text[len("bots"):].strip()
+                if not arg.isdigit() or not (1 <= int(arg) <= self.MAX_BOTS_PER_REQUEST):
+                    self.send_text(p, f"Usage: 'bots <N>' with N from 1 to {self.MAX_BOTS_PER_REQUEST}.", "red")
+                else:
+                    n = int(arg)
+                    error = self.spawn_bots(n)
+                    if error:
+                        self.send_text(p, f"Couldn't add bots: {error}", "red")
+                    else:
+                        self.send_text(p, f"Adding {n} bot{'s' if n != 1 else ''} to the lobby...", "cyan")
+                        self._log(f"{p.name} added {n} bot(s) to the lobby.")
             else:
                 self._broadcast_chat(p, text)
 

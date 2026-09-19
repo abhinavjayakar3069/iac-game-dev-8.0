@@ -74,8 +74,11 @@ player's name, or `skip`.
 
 ### Solo testing without other humans
 
-The server can auto-spawn AI bot players so you can test or demo the full game
-loop alone:
+The host can add AI bot players right from their own client window - once
+you're the host, type `bots <N>` in the lobby (e.g. `bots 4`) to fill empty
+seats without needing anyone else. No separate command or window required.
+
+Alternatively, start the server with bots already attached from the CLI:
 
 ```bash
 python server.py --port 5050 --bots 4
