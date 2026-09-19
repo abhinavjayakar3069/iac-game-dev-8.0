@@ -1,13 +1,15 @@
 """Terminal Mafia - AI bot client, for filling seats during testing/demos.
 
 Usage: python bot_client.py <host> <port> [name]
+(or just python bot_client.py / double-click the .exe - it will try to
+find the server automatically, then prompt if it can't)
 """
 import random
 import socket
 import sys
 import time
 
-from mafia import protocol
+from mafia import discovery, protocol
 
 CHAT_LINES = [
     "I'm not sure who to trust yet.",
@@ -21,15 +23,39 @@ CHAT_LINES = [
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python bot_client.py <host> <port> [name]")
-        sys.exit(1)
-    host = sys.argv[1]
-    port = int(sys.argv[2])
-    name = sys.argv[3] if len(sys.argv) > 3 else f"Bot{random.randint(100, 999)}"
+    if len(sys.argv) >= 3:
+        host = sys.argv[1]
+        port = int(sys.argv[2])
+        name = sys.argv[3] if len(sys.argv) > 3 else f"Bot{random.randint(100, 999)}"
+    else:
+        # No <host> <port> passed on the command line - this happens when
+        # the .exe is launched by double-clicking it rather than from a
+        # terminal (or from server.py's --bots, which always passes args
+        # and so never hits this branch).
+        print("Looking for a server on this network...")
+        found = discovery.find_server()
+        if found:
+            host, port = found
+            print(f"Found server at {host}:{port}.")
+        else:
+            print("No server found automatically - enter it manually.")
+            host = input("Server IP address (blank for 127.0.0.1): ").strip() or "127.0.0.1"
+            while True:
+                port_text = input("Port (blank for 5050): ").strip() or "5050"
+                try:
+                    port = int(port_text)
+                    break
+                except ValueError:
+                    print("Enter a number for the port.")
+        name = f"Bot{random.randint(100, 999)}"
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((host, port))
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, port))
+    except OSError as e:
+        print(f"Could not connect to {host}:{port} ({e}).")
+        input("Press Enter to exit.")
+        return
     reader = protocol.LineReader()
     state = {"name_sent": False, "known_names": set()}
 
