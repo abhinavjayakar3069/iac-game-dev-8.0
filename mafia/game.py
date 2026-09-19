@@ -73,7 +73,7 @@ class GameServer:
         self.round = 0
         self.game_started = False
         self.host_id = None
-        self.last_night_result = None
+        self._no_elim_streak = 0
         self._srv_sock = None
 
     # ------------------------------------------------------------------ #
@@ -485,7 +485,7 @@ class GameServer:
 
         if detective:
             invest_targets = [p for p in alive if p.id != detective.id]
-            self._prompt(detective, "detain", invest_targets, "Choose a player to send to jail:", self.NIGHT_TIME)
+            self._prompt(detective, "investigate", invest_targets, "Choose a player to investigate:", self.NIGHT_TIME)
 
         actors = set(m.id for m in mafia)
         if doctor:
@@ -501,7 +501,6 @@ class GameServer:
 
         infect_votes = {}
         save_target = {}
-        jail_votes = {}
         pending_pids = set(actors)
 
         def on_message(pid, msg):
@@ -538,8 +537,13 @@ class GameServer:
                 infect_votes[pid] = target.id
             elif kind == "save":
                 save_target["id"] = target.id if target else None
-            elif kind == "detain" and target:
-                jail_votes[pid] = target.id
+            elif kind == "investigate" and target:
+                is_engineer = target.role == roles.ENGINEER
+                self.send_text(
+                    p,
+                    f"{target.name} is {'an Engineer!' if is_engineer else 'not an Engineer.'}",
+                    "red" if is_engineer else "cyan",
+                )
             elif kind == "steal" and target:
                 target.score-=1; p.score+=1
             return len(pending_pids) == 0
@@ -572,25 +576,10 @@ class GameServer:
                 for e in mafia:
                     self.send_text(e, f"{victim.name} refused to join your team.", "yellow")
 
-        jail_target_id = self._plurality(list(jail_votes.values()))
-        jailed = self.players.get(jail_target_id) if jail_target_id else None
-        if jailed:
-            jailed.alive = False
-            self.last_night_result = ("jailed", jailed.name, jailed.role)
-        else:
-            self.last_night_result = ("none", None)
-        self._log(f"Night {self.round} result: {self.last_night_result}")
-
-
-    def _describe_night_result(self):
-        r = self.last_night_result
-        if r is None or r[0] == "none":
-            return "No one was jailed last night."
-        return f"{r[1]} was found rotting in a cell this morning, they were a {r[2]}."
+        self._log(f"Night {self.round} complete.")
 
     def day_phase(self):
         self.broadcast_text(f"\n=== Day {self.round} ===", "yellow")
-        self.broadcast_text(self._describe_night_result(), "bold")
 
         if self.check_win():
             return
@@ -678,8 +667,28 @@ class GameServer:
             if p.pending == "action":
                 p.pending = None
 
-        eliminated_id = self._plurality(list(votes.values()), tie_breaks_to_none=True)
-        if eliminated_id is None:
+        vote_values = list(votes.values())
+        if vote_values:
+            tally = Counter(vote_values)
+            top = max(tally.values())
+            leaders = [pid for pid, count in tally.items() if count == top]
+        else:
+            leaders = []
+
+        if len(leaders) == 1:
+            eliminated_id = leaders[0]
+            self._no_elim_streak = 0
+        elif self._no_elim_streak >= 1:
+            # Nothing kills at night anymore (Police investigates instead of
+            # jailing), so the day vote is the only way the game can end -
+            # after a second straight tied/empty day, force a resolution
+            # rather than let the game stall forever.
+            pool = leaders if leaders else [p.id for p in alive]
+            eliminated_id = random.choice(pool)
+            self._no_elim_streak = 0
+            self.broadcast_text("Two days straight with no decision - the tie is broken at random.", "magenta")
+        else:
+            self._no_elim_streak += 1
             self.broadcast_text("The vote is tied or inconclusive. No one is eliminated.", "yellow")
             self._log(f"Day {self.round}: no elimination (tie/no votes).")
             return

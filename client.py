@@ -41,14 +41,14 @@ PHASE_BANNERS = {
 ROLE_DISPLAY = {
     "Engineer": ("INFILTRATOR", "Each night, convert one player into a fellow Engineer. Win when Engineers equal or outnumber everyone else."),
     "Doctor": ("FIREWALL SPECIALIST", "Each night, shield one player from being converted."),
-    "Police": ("ENFORCER", "Each night, send one player to jail - they're eliminated, no exceptions."),
+    "Police": ("ENFORCER", "Each night, investigate one player and privately learn if they're an Engineer."),
     "Professor": ("ANALYST", "Each night, deduct a point from another player and add it to your own score."),
 }
 
 PROMPT_LABELS = {
     "infect": "SELECT TARGET TO CONVERT",
     "save": "SELECT PLAYER TO PROTECT",
-    "detain": "SELECT PLAYER TO SEND TO JAIL",
+    "investigate": "SELECT PLAYER TO INVESTIGATE",
     "steal": "SELECT PLAYER TO DEDUCT A POINT FROM",
     "vote": "CAST YOUR VOTE - WHO IS AN ENGINEER?",
 }
